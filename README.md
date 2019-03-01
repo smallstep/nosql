@@ -10,9 +10,9 @@ and it is in development so the API is not stable.
 The current version comes with a BoltDB implementation, but multiple
 implementations are in the roadmap.
 
-[ ] Memory
-[x] [BoldDB](https://github.com/etcd-io/bbolt), using etcd fork
-[ ] Badger
-[ ] MariaDB/MySQL
-[ ] PostgreSQL
-[ ] ...
+- [ ] Memory
+- [x] [BoldDB](https://github.com/etcd-io/bbolt), using etcd fork
+- [ ] Badger
+- [ ] MariaDB/MySQL
+- [ ] PostgreSQL
+- [ ] ...
