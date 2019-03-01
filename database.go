@@ -18,17 +18,17 @@ type DB interface {
 	// Close closes the current database.
 	Close() error
 	// CreateTable creates a table or a bucket in the database.
-	CreateTable(bucket string) error
+	CreateTable(bucket []byte) error
 	// DeleteTable deletes a table or a bucket in the database.
-	DeleteTable(bucket string) error
+	DeleteTable(bucket []byte) error
 	// Get returns the value stored in the given table/bucket and key.
-	Get(bucket, key string) (ret []byte, err error)
+	Get(bucket, key []byte) (ret []byte, err error)
 	// Set sets the given value in the given table/bucket and key.
-	Set(bucket, key string, value []byte) error
+	Set(bucket, key []byte, value []byte) error
 	// Del deletes the data in the given table/bucket and key.
-	Del(bucket, key string) error
+	Del(bucket, key []byte) error
 	// List returns a list of all the entries in a given table/bucket.
-	List(bucket string) ([]*Entry, error)
+	List(bucket []byte) ([]*Entry, error)
 	// Update performs a transaction with multiple read-write commands.
 	Update(tx *Tx) error
 }
@@ -90,7 +90,7 @@ type Tx struct {
 }
 
 // CreateTable adds a new create query to the transaction.
-func (tx *Tx) CreateTable(bucket string) {
+func (tx *Tx) CreateTable(bucket []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Cmd:    CreateTable,
@@ -98,7 +98,7 @@ func (tx *Tx) CreateTable(bucket string) {
 }
 
 // DeleteTable adds a new create query to the transaction.
-func (tx *Tx) DeleteTable(bucket string) {
+func (tx *Tx) DeleteTable(bucket []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Cmd:    DeleteTable,
@@ -106,7 +106,7 @@ func (tx *Tx) DeleteTable(bucket string) {
 }
 
 // Get adds a new read query to the transaction.
-func (tx *Tx) Get(bucket, key string) {
+func (tx *Tx) Get(bucket, key []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Key:    key,
@@ -115,7 +115,7 @@ func (tx *Tx) Get(bucket, key string) {
 }
 
 // Set adds a new write query to the transaction.
-func (tx *Tx) Set(bucket, key string, value []byte) {
+func (tx *Tx) Set(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Key:    key,
@@ -125,7 +125,7 @@ func (tx *Tx) Set(bucket, key string, value []byte) {
 }
 
 // Del adds a new delete query to the transaction.
-func (tx *Tx) Del(bucket, key string) {
+func (tx *Tx) Del(bucket, key []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Key:    key,
@@ -134,7 +134,7 @@ func (tx *Tx) Del(bucket, key string) {
 }
 
 // Cas adds a new compare-and-swap query to the transaction.
-func (tx *Tx) Cas(bucket, key string, value []byte) {
+func (tx *Tx) Cas(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Key:    key,
@@ -144,7 +144,7 @@ func (tx *Tx) Cas(bucket, key string, value []byte) {
 }
 
 // Cmp adds a new compare-or-rollback query to the transaction.
-func (tx *Tx) Cmp(bucket, key string, value []byte) {
+func (tx *Tx) Cmp(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,
 		Key:    key,
@@ -156,16 +156,16 @@ func (tx *Tx) Cmp(bucket, key string, value []byte) {
 // TxEntry is the base elements for the transactions, a TxEntry is a read or
 // write operation on the database.
 type TxEntry struct {
-	Bucket string
-	Key    string
+	Bucket []byte
+	Key    []byte
 	Value  []byte
 	Cmd    TxCmd
 }
 
 // Entry is the return value for list commands.
 type Entry struct {
-	Bucket string
-	Key    string
+	Bucket []byte
+	Key    []byte
 	Value  []byte
 }
 

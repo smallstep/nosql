@@ -1,12 +1,14 @@
 package nosql
 
 import (
-	"strings"
+	"bytes"
 	"time"
 
 	bolt "github.com/coreos/bbolt"
 	"github.com/pkg/errors"
 )
+
+var boltDBSep = []byte("/")
 
 // BoltDB is a wrapper over bolt.DB,
 type BoltDB struct {
@@ -32,7 +34,7 @@ func (db *BoltDB) Close() error {
 }
 
 // CreateTable creates a bucket or an embedded bucket if it does not exists.
-func (db *BoltDB) CreateTable(bucket string) error {
+func (db *BoltDB) CreateTable(bucket []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		return db.createBucket(tx, bucket)
 	})
@@ -40,20 +42,20 @@ func (db *BoltDB) CreateTable(bucket string) error {
 
 // DeleteTable deletes a root or embedded bucket. Returns an error if the
 // bucket cannot be found or if the key represents a non-bucket value.
-func (db *BoltDB) DeleteTable(bucket string) error {
+func (db *BoltDB) DeleteTable(bucket []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		return db.deleteBucket(tx, bucket)
 	})
 }
 
 // Get returns the value stored in the given bucked and key.
-func (db *BoltDB) Get(bucket, key string) (ret []byte, err error) {
+func (db *BoltDB) Get(bucket, key []byte) (ret []byte, err error) {
 	err = db.db.View(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
 			return err
 		}
-		ret = b.Get([]byte(key))
+		ret = b.Get(key)
 		if ret == nil {
 			return errors.WithStack(ErrNotFound)
 		}
@@ -66,29 +68,29 @@ func (db *BoltDB) Get(bucket, key string) (ret []byte, err error) {
 }
 
 // Set stores the given value on bucket and key.
-func (db *BoltDB) Set(bucket, key string, value []byte) error {
+func (db *BoltDB) Set(bucket, key, value []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
 			return err
 		}
-		return errors.WithStack(b.Put([]byte(key), value))
+		return errors.WithStack(b.Put(key, value))
 	})
 }
 
 // Del deletes the value stored in the given bucked and key.
-func (db *BoltDB) Del(bucket, key string) error {
+func (db *BoltDB) Del(bucket, key []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
 			return err
 		}
-		return errors.WithStack(b.Delete([]byte(key)))
+		return errors.WithStack(b.Delete(key))
 	})
 }
 
 // List returns the full list of entries in a bucket.
-func (db *BoltDB) List(bucket string) ([]*Entry, error) {
+func (db *BoltDB) List(bucket []byte) ([]*Entry, error) {
 	var entries []*Entry
 	err := db.db.View(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
@@ -100,7 +102,7 @@ func (db *BoltDB) List(bucket string) ([]*Entry, error) {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			entries = append(entries, &Entry{
 				Bucket: bucket,
-				Key:    string(cloneBytes(k)),
+				Key:    cloneBytes(k),
 				Value:  cloneBytes(v),
 			})
 		}
@@ -138,17 +140,17 @@ func (db *BoltDB) Update(tx *Tx) error {
 
 			switch q.Cmd {
 			case Get:
-				ret := b.Get([]byte(q.Key))
+				ret := b.Get(q.Key)
 				if ret == nil {
 					return errors.WithStack(ErrNotFound)
 				}
 				q.Value = cloneBytes(ret)
 			case Set:
-				if err = b.Put([]byte(q.Key), []byte(q.Value)); err != nil {
+				if err = b.Put(q.Key, q.Value); err != nil {
 					return errors.WithStack(err)
 				}
 			case Delete:
-				if err = b.Delete([]byte(q.Key)); err != nil {
+				if err = b.Delete(q.Key); err != nil {
 					return errors.WithStack(err)
 				}
 			case CmpAndSwap:
@@ -165,27 +167,27 @@ func (db *BoltDB) Update(tx *Tx) error {
 
 // getBucket returns the bucket supporting nested buckets, nested buckets are
 // bucket names separated by '/'.
-func (db *BoltDB) getBucket(tx *bolt.Tx, name string) (b *bolt.Bucket, err error) {
-	buckets := strings.Split(name, "/")
+func (db *BoltDB) getBucket(tx *bolt.Tx, name []byte) (b *bolt.Bucket, err error) {
+	buckets := bytes.Split(name, boltDBSep)
 	for i, n := range buckets {
 		if i == 0 {
-			b = tx.Bucket([]byte(n))
+			b = tx.Bucket(n)
 		} else {
-			b = b.Bucket([]byte(n))
+			b = b.Bucket(n)
 		}
 		if b == nil {
-			return nil, errors.Wrapf(ErrNotFound, "bucket %s does not exist", strings.Join(buckets[0:i+1], "/"))
+			return nil, errors.Wrapf(ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
 		}
 	}
 	return
 }
 
 // createBucket creates a bucket or a nested bucket in the given transaction.
-func (db *BoltDB) createBucket(tx *bolt.Tx, name string) (err error) {
+func (db *BoltDB) createBucket(tx *bolt.Tx, name []byte) (err error) {
 	b := boltBucket(tx)
-	buckets := strings.Split(name, "/")
+	buckets := bytes.Split(name, boltDBSep)
 	for _, name := range buckets {
-		b, err = b.CreateBucketIfNotExists([]byte(name))
+		b, err = b.CreateBucketIfNotExists(name)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -194,16 +196,16 @@ func (db *BoltDB) createBucket(tx *bolt.Tx, name string) (err error) {
 }
 
 // deleteBucket deletes a bucket or a nested bucked in the given transaction.
-func (db *BoltDB) deleteBucket(tx *bolt.Tx, name string) (err error) {
+func (db *BoltDB) deleteBucket(tx *bolt.Tx, name []byte) (err error) {
 	b := boltBucket(tx)
-	buckets := strings.Split(name, "/")
+	buckets := bytes.Split(name, boltDBSep)
 	last := len(buckets) - 1
 	for i := 0; i < last; i++ {
-		if b = b.Bucket([]byte(buckets[i])); b == nil {
-			return errors.Wrapf(ErrNotFound, "bucket %s does not exist", strings.Join(buckets[0:i+1], "/"))
+		if b = b.Bucket(buckets[i]); b == nil {
+			return errors.Wrapf(ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
 		}
 	}
-	err = b.DeleteBucket([]byte(buckets[last]))
+	err = b.DeleteBucket(buckets[last])
 	if err == bolt.ErrBucketNotFound {
 		return errors.Wrapf(ErrNotFound, "bucket %s does not exist", name)
 	}
