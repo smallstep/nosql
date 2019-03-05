@@ -11,7 +11,7 @@ The current version comes with a BoltDB implementation, but multiple
 implementations are in the roadmap.
 
 - [ ] Memory
-- [x] [BoldDB](https://github.com/etcd-io/bbolt), using etcd fork
+- [x] [BoltDB](https://github.com/etcd-io/bbolt) etcd fork.
 - [ ] Badger
 - [ ] MariaDB/MySQL
 - [ ] PostgreSQL
