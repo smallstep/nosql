@@ -7,7 +7,7 @@ import (
 
 var (
 	// ErrNotFound is the type returned on DB implementations if an item does not
-	// exists.
+	// exist.
 	ErrNotFound = errors.New("not found")
 )
 

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"time"
 
-	bolt "github.com/coreos/bbolt"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 var boltDBSep = []byte("/")
