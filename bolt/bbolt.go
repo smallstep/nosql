@@ -1,17 +1,18 @@
-package nosql
+package bolt
 
 import (
 	"bytes"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/smallstep/nosql/database"
 	bolt "go.etcd.io/bbolt"
 )
 
 var boltDBSep = []byte("/")
 
-// BoltDB is a wrapper over bolt.DB,
-type BoltDB struct {
+// DB is a wrapper over bolt.DB,
+type DB struct {
 	db *bolt.DB
 }
 
@@ -22,19 +23,25 @@ type boltBucket interface {
 	DeleteBucket(name []byte) error
 }
 
-// Open opens or creates a BoltDB database in the given path.
-func (db *BoltDB) Open(path string) (err error) {
-	db.db, err = bolt.Open(path, 0600, &bolt.Options{Timeout: 5 * time.Second})
+// Open opens or creates a DB database in the given path.
+func (db *DB) Open(dataSourceName string, opt ...database.Option) (err error) {
+	opts := &database.Options{}
+	for _, o := range opt {
+		if err := o(opts); err != nil {
+			return err
+		}
+	}
+	db.db, err = bolt.Open(dataSourceName, 0600, &bolt.Options{Timeout: 5 * time.Second})
 	return errors.WithStack(err)
 }
 
-// Close closes the BoltDB database.
-func (db *BoltDB) Close() error {
+// Close closes the DB database.
+func (db *DB) Close() error {
 	return errors.WithStack(db.db.Close())
 }
 
 // CreateTable creates a bucket or an embedded bucket if it does not exists.
-func (db *BoltDB) CreateTable(bucket []byte) error {
+func (db *DB) CreateTable(bucket []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		return db.createBucket(tx, bucket)
 	})
@@ -42,14 +49,14 @@ func (db *BoltDB) CreateTable(bucket []byte) error {
 
 // DeleteTable deletes a root or embedded bucket. Returns an error if the
 // bucket cannot be found or if the key represents a non-bucket value.
-func (db *BoltDB) DeleteTable(bucket []byte) error {
+func (db *DB) DeleteTable(bucket []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		return db.deleteBucket(tx, bucket)
 	})
 }
 
 // Get returns the value stored in the given bucked and key.
-func (db *BoltDB) Get(bucket, key []byte) (ret []byte, err error) {
+func (db *DB) Get(bucket, key []byte) (ret []byte, err error) {
 	err = db.db.View(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
@@ -57,7 +64,7 @@ func (db *BoltDB) Get(bucket, key []byte) (ret []byte, err error) {
 		}
 		ret = b.Get(key)
 		if ret == nil {
-			return errors.WithStack(ErrNotFound)
+			return database.ErrNotFound
 		}
 		// Make sure to return a copy as ret is only valid during the
 		// transaction.
@@ -68,7 +75,7 @@ func (db *BoltDB) Get(bucket, key []byte) (ret []byte, err error) {
 }
 
 // Set stores the given value on bucket and key.
-func (db *BoltDB) Set(bucket, key, value []byte) error {
+func (db *DB) Set(bucket, key, value []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
@@ -79,7 +86,7 @@ func (db *BoltDB) Set(bucket, key, value []byte) error {
 }
 
 // Del deletes the value stored in the given bucked and key.
-func (db *BoltDB) Del(bucket, key []byte) error {
+func (db *DB) Del(bucket, key []byte) error {
 	return db.db.Update(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
@@ -90,17 +97,17 @@ func (db *BoltDB) Del(bucket, key []byte) error {
 }
 
 // List returns the full list of entries in a bucket.
-func (db *BoltDB) List(bucket []byte) ([]*Entry, error) {
-	var entries []*Entry
+func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
+	var entries []*database.Entry
 	err := db.db.View(func(tx *bolt.Tx) error {
 		b, err := db.getBucket(tx, bucket)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "getBucket failed")
 		}
 
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			entries = append(entries, &Entry{
+			entries = append(entries, &database.Entry{
 				Bucket: bucket,
 				Key:    cloneBytes(k),
 				Value:  cloneBytes(v),
@@ -112,19 +119,19 @@ func (db *BoltDB) List(bucket []byte) ([]*Entry, error) {
 }
 
 // Update performs multiple commands on one read-write transaction.
-func (db *BoltDB) Update(tx *Tx) error {
+func (db *DB) Update(tx *database.Tx) error {
 	return db.db.Update(func(boltTx *bolt.Tx) (err error) {
 		var b *bolt.Bucket
 		for _, q := range tx.Operations {
 			// create or delete buckets
 			switch q.Cmd {
-			case CreateTable:
+			case database.CreateTable:
 				err = db.createBucket(boltTx, q.Bucket)
 				if err != nil {
 					return err
 				}
 				continue
-			case DeleteTable:
+			case database.DeleteTable:
 				err = db.deleteBucket(boltTx, q.Bucket)
 				if err != nil {
 					return err
@@ -139,23 +146,23 @@ func (db *BoltDB) Update(tx *Tx) error {
 			}
 
 			switch q.Cmd {
-			case Get:
+			case database.Get:
 				ret := b.Get(q.Key)
 				if ret == nil {
-					return errors.WithStack(ErrNotFound)
+					return errors.WithStack(database.ErrNotFound)
 				}
 				q.Value = cloneBytes(ret)
-			case Set:
+			case database.Set:
 				if err = b.Put(q.Key, q.Value); err != nil {
 					return errors.WithStack(err)
 				}
-			case Delete:
+			case database.Delete:
 				if err = b.Delete(q.Key); err != nil {
 					return errors.WithStack(err)
 				}
-			case CmpAndSwap:
+			case database.CmpAndSwap:
 				return errors.Errorf("operation '%s' is not yet implemented", q.Cmd)
-			case CmpOrRollback:
+			case database.CmpOrRollback:
 				return errors.Errorf("operation '%s' is not yet implemented", q.Cmd)
 			default:
 				return errors.Errorf("operation '%s' is not supported", q.Cmd)
@@ -167,7 +174,7 @@ func (db *BoltDB) Update(tx *Tx) error {
 
 // getBucket returns the bucket supporting nested buckets, nested buckets are
 // bucket names separated by '/'.
-func (db *BoltDB) getBucket(tx *bolt.Tx, name []byte) (b *bolt.Bucket, err error) {
+func (db *DB) getBucket(tx *bolt.Tx, name []byte) (b *bolt.Bucket, err error) {
 	buckets := bytes.Split(name, boltDBSep)
 	for i, n := range buckets {
 		if i == 0 {
@@ -176,14 +183,14 @@ func (db *BoltDB) getBucket(tx *bolt.Tx, name []byte) (b *bolt.Bucket, err error
 			b = b.Bucket(n)
 		}
 		if b == nil {
-			return nil, errors.Wrapf(ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
+			return nil, database.ErrNotFound
 		}
 	}
 	return
 }
 
 // createBucket creates a bucket or a nested bucket in the given transaction.
-func (db *BoltDB) createBucket(tx *bolt.Tx, name []byte) (err error) {
+func (db *DB) createBucket(tx *bolt.Tx, name []byte) (err error) {
 	b := boltBucket(tx)
 	buckets := bytes.Split(name, boltDBSep)
 	for _, name := range buckets {
@@ -196,18 +203,18 @@ func (db *BoltDB) createBucket(tx *bolt.Tx, name []byte) (err error) {
 }
 
 // deleteBucket deletes a bucket or a nested bucked in the given transaction.
-func (db *BoltDB) deleteBucket(tx *bolt.Tx, name []byte) (err error) {
+func (db *DB) deleteBucket(tx *bolt.Tx, name []byte) (err error) {
 	b := boltBucket(tx)
 	buckets := bytes.Split(name, boltDBSep)
 	last := len(buckets) - 1
 	for i := 0; i < last; i++ {
 		if b = b.Bucket(buckets[i]); b == nil {
-			return errors.Wrapf(ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
+			return errors.Wrapf(database.ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
 		}
 	}
 	err = b.DeleteBucket(buckets[last])
 	if err == bolt.ErrBucketNotFound {
-		return errors.Wrapf(ErrNotFound, "bucket %s does not exist", name)
+		return errors.Wrapf(database.ErrNotFound, "bucket %s does not exist", name)
 	}
 	return
 }

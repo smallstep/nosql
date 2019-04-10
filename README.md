@@ -1,18 +1,18 @@
-# nosql
+# NoSQL
 
-NoSQL is an abstraction layer for data persistency.
+NoSQL is an abstraction layer for data persistence.
 
-Right now is used for future persistency in (step certificates)[https://github.com/smallstep/certificates]
-and it is in development so the API is not stable.
+This project is in development, the API is not stable.
 
-# Implementation
+# Implementations
 
-The current version comes with a BoltDB implementation, but multiple
-implementations are in the roadmap.
+The current version comes with a few implementations inlcuding Mysql, Badger,
+and BoltDB, but implementations are on the roadmap.
 
 - [ ] Memory
 - [x] [BoltDB](https://github.com/etcd-io/bbolt) etcd fork.
-- [ ] Badger
-- [ ] MariaDB/MySQL
+- [x] Badger
+- [x] MariaDB/MySQL
 - [ ] PostgreSQL
+- [ ] Cassandra
 - [ ] ...
