@@ -11,6 +11,9 @@ import (
 // Option is just a wrapper over database.Option.
 type Option = database.Option
 
+// DB is just a wrapper over database.DB.
+type DB = database.DB
+
 var (
 	// WithValueDir is a wrapper over database.WithValueDir.
 	WithValueDir = database.WithValueDir
