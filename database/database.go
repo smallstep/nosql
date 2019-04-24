@@ -1,36 +1,65 @@
-package nosql
+package database
 
 import (
-	"errors"
 	"fmt"
+
+	"errors"
 )
 
 var (
 	// ErrNotFound is the type returned on DB implementations if an item does not
 	// exist.
 	ErrNotFound = errors.New("not found")
+	// ErrOpNotSupported is the type returned on DB implementations if an operation
+	// is not supported.
+	ErrOpNotSupported = errors.New("operation not supported")
 )
+
+// Options are configuration options for the database.
+type Options struct {
+	Database string
+	ValueDir string
+}
+
+// Option is the modifier type over Options.
+type Option func(o *Options) error
+
+// WithValueDir is a modifier that sets the ValueDir attribute of Options.
+func WithValueDir(path string) Option {
+	return func(o *Options) error {
+		o.ValueDir = path
+		return nil
+	}
+}
+
+// WithDatabase is a modifier that sets the Database attribute of Options.
+func WithDatabase(db string) Option {
+	return func(o *Options) error {
+		o.Database = db
+		return nil
+	}
+}
 
 // DB is a interface to be implemented by the databases.
 type DB interface {
-	// Open opens the database available in the given path.
-	Open(path string) error
+	// Open opens the database available with the given options.
+	Open(dataSourceName string, opt ...Option) error
 	// Close closes the current database.
 	Close() error
-	// CreateTable creates a table or a bucket in the database.
-	CreateTable(bucket []byte) error
-	// DeleteTable deletes a table or a bucket in the database.
-	DeleteTable(bucket []byte) error
 	// Get returns the value stored in the given table/bucket and key.
 	Get(bucket, key []byte) (ret []byte, err error)
 	// Set sets the given value in the given table/bucket and key.
-	Set(bucket, key []byte, value []byte) error
+	Set(bucket, key, value []byte) error
 	// Del deletes the data in the given table/bucket and key.
 	Del(bucket, key []byte) error
 	// List returns a list of all the entries in a given table/bucket.
 	List(bucket []byte) ([]*Entry, error)
 	// Update performs a transaction with multiple read-write commands.
 	Update(tx *Tx) error
+	// CreateTable creates a table or a bucket in the database.
+	CreateTable(bucket []byte) error
+	// DeleteTable deletes a table or a bucket in the database.
+	DeleteTable(bucket []byte) error
 }
 
 // TxCmd is the type used to represent database command and operations.
@@ -167,35 +196,4 @@ type Entry struct {
 	Bucket []byte
 	Key    []byte
 	Value  []byte
-}
-
-// IsErrNotFound returns true if the cause of the given error is ErrNotFound.
-func IsErrNotFound(err error) bool {
-	return err == ErrNotFound || cause(err) == ErrNotFound
-}
-
-// cause (from github.com/pkg/errors) returns the underlying cause of the
-// error, if possible. An error value has a cause if it implements the
-// following interface:
-//
-//     type causer interface {
-//            Cause() error
-//     }
-//
-// If the error does not implement Cause, the original error will
-// be returned. If the error is nil, nil will be returned without further
-// investigation.
-func cause(err error) error {
-	type causer interface {
-		Cause() error
-	}
-
-	for err != nil {
-		cause, ok := err.(causer)
-		if !ok {
-			break
-		}
-		err = cause.Cause()
-	}
-	return err
 }
