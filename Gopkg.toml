@@ -54,4 +54,4 @@ required = [
 
 [[constraint]]
   name = "github.com/dgraph-io/badger"
-  version = "1.5.4"
+  revision = "391b6d3b93e6014fe8c2971fcc0c1266e47dbbd9"
