@@ -39,12 +39,30 @@ func run(t *testing.T, db database.DB) {
 	assert.FatalError(t, err)
 	assert.Equals(t, mikeb, res)
 
+	var found bool
+	// loadOrStore should load since mike already exists
+	res, found, err = db.LoadOrStore(ub, []byte("mike"), mikeb)
+	assert.FatalError(t, err)
+	assert.Equals(t, mikeb, res)
+	assert.True(t, found)
+	assert.Nil(t, err)
+
 	// delete mike
 	assert.FatalError(t, db.Del(ub, []byte("mike")))
 
 	// check for mike - should not exist
 	_, err = db.Get(ub, []byte("mike"))
 	assert.True(t, IsErrNotFound(err))
+
+	// loadOrStore should store since mike does not exist
+	res, found, err = db.LoadOrStore(ub, []byte("mike"), mikeb)
+	assert.FatalError(t, err)
+	assert.Nil(t, res)
+	assert.False(t, found)
+	assert.Nil(t, err)
+
+	// delete mike
+	assert.FatalError(t, db.Del(ub, []byte("mike")))
 
 	/* Update */
 
@@ -212,6 +230,7 @@ func TestMySQL(t *testing.T) {
 	}
 
 	db, err := New("mysql",
+		//fmt.Sprintf("%s:%s@%s(%s)/", uname, pwd, proto, addr),
 		fmt.Sprintf("%s:%s@%s(%s)/", uname, pwd, proto, addr),
 		WithDatabase(testDB))
 	assert.FatalError(t, err)

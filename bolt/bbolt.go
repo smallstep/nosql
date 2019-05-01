@@ -118,6 +118,34 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	return entries, err
 }
 
+// LoadOrStore stores a id/value pair in the table if the id is not yet set.
+func (db *DB) LoadOrStore(bucket, key, value []byte) ([]byte, bool, error) {
+	var (
+		ret   []byte
+		found bool
+	)
+	err := db.db.Update(func(boltTx *bolt.Tx) (err error) {
+		b, err := db.getBucket(boltTx, bucket)
+		if err != nil {
+			return err
+		}
+		ret = b.Get(key)
+		switch {
+		case ret == nil:
+			// Not Found, so try to set.
+			if err = b.Put(key, value); err != nil {
+				return errors.WithStack(err)
+			}
+			return nil
+		default:
+			// Found
+			found = true
+			return nil
+		}
+	})
+	return ret, found, err
+}
+
 // Update performs multiple commands on one read-write transaction.
 func (db *DB) Update(tx *database.Tx) error {
 	return db.db.Update(func(boltTx *bolt.Tx) (err error) {

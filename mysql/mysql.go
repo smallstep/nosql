@@ -61,10 +61,7 @@ func delQry(bucket []byte) string {
 }
 
 func createTableQry(bucket []byte) string {
-	//return fmt.Sprintf("CREATE TABLE %s(id int NOT NULL AUTO_INCREMENT, key varchar(255), value BLOB, PRIMARY KEY (key));", bucket)
-	return fmt.Sprintf("CREATE Table %s(id int NOT NULL AUTO_INCREMENT, nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (id));", bucket)
-
-	//return fmt.Sprintf("CREATE TABLE %s (key varbinary(255), value blob);", bucket)
+	return fmt.Sprintf("CREATE TABLE %s(id int NOT NULL AUTO_INCREMENT, nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (id));", bucket)
 }
 
 func deleteTableQry(bucket []byte) string {
@@ -131,17 +128,51 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	return entries, nil
 }
 
+// LoadOrStore stores a id/value pair in the table if the id is not yet set.
+func (db *DB) LoadOrStore(bucket, key, value []byte) ([]byte, bool, error) {
+	sqlTx, err := db.db.Begin()
+	if err != nil {
+		return nil, false, errors.WithStack(err)
+	}
+	rollback := func(err error) ([]byte, bool, error) {
+		if rollbackErr := sqlTx.Rollback(); rollbackErr != nil {
+			return nil, false, errors.Wrap(err, "LoadOrStore failed, unable to rollback transaction")
+		}
+		return nil, false, errors.Wrap(err, "LoadOrStore failed")
+	}
+
+	var val string
+	err = sqlTx.QueryRow(getQry(bucket), key).Scan(&val)
+	switch {
+	case err == sql.ErrNoRows:
+		if _, err = sqlTx.Exec(setQry(bucket), key, value); err != nil {
+			return rollback(errors.Wrapf(err, "failed to set %s/%s", bucket, key))
+		}
+		if err = errors.WithStack(sqlTx.Commit()); err != nil {
+			return rollback(err)
+		}
+		return nil, false, nil
+	case err != nil:
+		return rollback(errors.Wrapf(err, "failed to get %s/%s", bucket, key))
+	default:
+		if err = errors.WithStack(sqlTx.Commit()); err != nil {
+			return rollback(err)
+		}
+		return []byte(val), true, nil
+	}
+}
+
 // Update performs multiple commands on one read-write transaction.
 func (db *DB) Update(tx *database.Tx) error {
 	sqlTx, err := db.db.Begin()
+	if err != nil {
+		return errors.WithStack(err)
+	}
 	rollback := func(err error) error {
 		if rollbackErr := sqlTx.Rollback(); rollbackErr != nil {
 			return errors.Wrap(err, "UPDATE failed, unable to rollback transaction")
 		}
 		return errors.Wrap(err, "UPDATE failed")
-	}
-	if err != nil {
-		return errors.WithStack(err)
 	}
 	for _, q := range tx.Operations {
 		// create or delete buckets
