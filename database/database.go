@@ -15,6 +15,42 @@ var (
 	ErrOpNotSupported = errors.New("operation not supported")
 )
 
+// IsErrNotFound returns true if the cause of the given error is ErrNotFound.
+func IsErrNotFound(err error) bool {
+	return err == ErrNotFound || cause(err) == ErrNotFound
+}
+
+// IsErrOpNotSupported returns true if the cause of the given error is ErrOpNotSupported.
+func IsErrOpNotSupported(err error) bool {
+	return err == ErrOpNotSupported || cause(err) == ErrNotFound
+}
+
+// cause (from github.com/pkg/errors) returns the underlying cause of the
+// error, if possible. An error value has a cause if it implements the
+// following interface:
+//
+//     type causer interface {
+//            Cause() error
+//     }
+//
+// If the error does not implement Cause, the original error will
+// be returned. If the error is nil, nil will be returned without further
+// investigation.
+func cause(err error) error {
+	type causer interface {
+		Cause() error
+	}
+
+	for err != nil {
+		cause, ok := err.(causer)
+		if !ok {
+			break
+		}
+		err = cause.Cause()
+	}
+	return err
+}
+
 // Options are configuration options for the database.
 type Options struct {
 	Database string
@@ -50,6 +86,10 @@ type DB interface {
 	Get(bucket, key []byte) (ret []byte, err error)
 	// Set sets the given value in the given table/bucket and key.
 	Set(bucket, key, value []byte) error
+	// LoadOrStore returns the value stored in the given table/bucket and key
+	// if it exists, otherwise it sets the value. Returns 'true' if the value
+	// was found, false otherwise.
+	LoadOrStore(bucket, key, value []byte) ([]byte, bool, error)
 	// Del deletes the data in the given table/bucket and key.
 	Del(bucket, key []byte) error
 	// List returns a list of all the entries in a given table/bucket.
@@ -88,6 +128,9 @@ const (
 	// compare the values will the ones passed, and if they don't match the
 	// transaction will fail
 	CmpOrRollback
+	// LoadOrStore on a TxEntry will represent a read transaction that will
+	// store the accompanying value if one does not already exist at that index.
+	LoadOrStore
 )
 
 // String implements the fmt.Stringer interface on TxCmd.
@@ -103,6 +146,8 @@ func (o TxCmd) String() string {
 		return "write"
 	case Delete:
 		return "delete"
+	case LoadOrStore:
+		return "load-or-store"
 	case CmpAndSwap:
 		return "compare-and-swap"
 	case CmpOrRollback:
@@ -162,6 +207,16 @@ func (tx *Tx) Del(bucket, key []byte) {
 	})
 }
 
+// LoadOrStore adds a new load-or-store query to the transaction.
+func (tx *Tx) LoadOrStore(bucket, key, value []byte) {
+	tx.Operations = append(tx.Operations, &TxEntry{
+		Bucket: bucket,
+		Key:    key,
+		Value:  value,
+		Cmd:    LoadOrStore,
+	})
+}
+
 // Cas adds a new compare-and-swap query to the transaction.
 func (tx *Tx) Cas(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
@@ -188,7 +243,10 @@ type TxEntry struct {
 	Bucket []byte
 	Key    []byte
 	Value  []byte
+	// Where the result of Get or LoadOrStore txns is stored.
+	Result []byte
 	Cmd    TxCmd
+	Found  bool
 }
 
 // Entry is the return value for list commands.

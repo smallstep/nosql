@@ -19,43 +19,11 @@ var (
 	WithValueDir = database.WithValueDir
 	// WithDatabase is a wrapper over database.WithDatabase.
 	WithDatabase = database.WithDatabase
+	// IsErrNotFound is a wrapper over database.IsErrNotFound.
+	IsErrNotFound = database.IsErrNotFound
+	// IsErrOpNotSupported is a wrapper over database.IsErrOpNotSupported.
+	IsErrOpNotSupported = database.IsErrOpNotSupported
 )
-
-// IsErrNotFound returns true if the cause of the given error is ErrNotFound.
-func IsErrNotFound(err error) bool {
-	return err == database.ErrNotFound || cause(err) == database.ErrNotFound
-}
-
-// IsErrOpNotSupported returns true if the cause of the given error is ErrOpNotSupported.
-func IsErrOpNotSupported(err error) bool {
-	return err == database.ErrOpNotSupported || cause(err) == database.ErrNotFound
-}
-
-// cause (from github.com/pkg/errors) returns the underlying cause of the
-// error, if possible. An error value has a cause if it implements the
-// following interface:
-//
-//     type causer interface {
-//            Cause() error
-//     }
-//
-// If the error does not implement Cause, the original error will
-// be returned. If the error is nil, nil will be returned without further
-// investigation.
-func cause(err error) error {
-	type causer interface {
-		Cause() error
-	}
-
-	for err != nil {
-		cause, ok := err.(causer)
-		if !ok {
-			break
-		}
-		err = cause.Cause()
-	}
-	return err
-}
 
 // New returns a database with the given driver.
 func New(driver, dataSourceName string, opt ...Option) (db database.DB, err error) {

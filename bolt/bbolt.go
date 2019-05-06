@@ -118,6 +118,34 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	return entries, err
 }
 
+// LoadOrStore stores a id/value pair in the table if the id is not yet set.
+func (db *DB) LoadOrStore(bucket, key, value []byte) ([]byte, bool, error) {
+	var (
+		ret   []byte
+		found bool
+	)
+	err := db.db.Update(func(boltTx *bolt.Tx) (err error) {
+		b, err := db.getBucket(boltTx, bucket)
+		if err != nil {
+			return err
+		}
+		ret = b.Get(key)
+		switch {
+		case ret == nil:
+			// Not Found, so try to set.
+			if err = b.Put(key, value); err != nil {
+				return errors.WithStack(err)
+			}
+			return nil
+		default:
+			// Found
+			found = true
+			return nil
+		}
+	})
+	return ret, found, err
+}
+
 // Update performs multiple commands on one read-write transaction.
 func (db *DB) Update(tx *database.Tx) error {
 	return db.db.Update(func(boltTx *bolt.Tx) (err error) {
@@ -146,12 +174,26 @@ func (db *DB) Update(tx *database.Tx) error {
 			}
 
 			switch q.Cmd {
+			case database.LoadOrStore:
+				q.Result = b.Get(q.Key)
+				switch {
+				case q.Result == nil:
+					// Not Found, so try to set.
+					if err = b.Put(q.Key, q.Value); err != nil {
+						return errors.Wrapf(err, "failed to set %s/%s", q.Key, q.Value)
+					}
+					q.Result, q.Found = nil, false
+				default:
+					// Found
+					q.Found = true
+				}
 			case database.Get:
 				ret := b.Get(q.Key)
 				if ret == nil {
 					return errors.WithStack(database.ErrNotFound)
 				}
-				q.Value = cloneBytes(ret)
+				q.Result = cloneBytes(ret)
+				q.Found = true
 			case database.Set:
 				if err = b.Put(q.Key, q.Value); err != nil {
 					return errors.WithStack(err)
