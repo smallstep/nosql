@@ -174,12 +174,26 @@ func (db *DB) Update(tx *database.Tx) error {
 			}
 
 			switch q.Cmd {
+			case database.LoadOrStore:
+				q.Result = b.Get(q.Key)
+				switch {
+				case q.Result == nil:
+					// Not Found, so try to set.
+					if err = b.Put(q.Key, q.Value); err != nil {
+						return errors.Wrapf(err, "failed to set %s/%s", q.Key, q.Value)
+					}
+					q.Result, q.Found = nil, false
+				default:
+					// Found
+					q.Found = true
+				}
 			case database.Get:
 				ret := b.Get(q.Key)
 				if ret == nil {
 					return errors.WithStack(database.ErrNotFound)
 				}
-				q.Value = cloneBytes(ret)
+				q.Result = cloneBytes(ret)
+				q.Found = true
 			case database.Set:
 				if err = b.Put(q.Key, q.Value); err != nil {
 					return errors.WithStack(err)

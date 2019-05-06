@@ -261,10 +261,24 @@ func (db *DB) Update(txn *database.Tx) error {
 				return err
 			}
 			switch q.Cmd {
+			case database.LoadOrStore:
+				q.Result, err = badgerGet(badgerTxn, bk)
+				switch {
+				case database.IsErrNotFound(err):
+					if err := badgerTxn.Set(bk, q.Value); err != nil {
+						return errors.Wrapf(err, "failed to set %s/%s", q.Bucket, q.Key)
+					}
+					q.Found = false
+				case err != nil:
+					return err
+				default:
+					q.Found = true
+				}
 			case database.Get:
-				if q.Value, err = badgerGet(badgerTxn, bk); err != nil {
+				if q.Result, err = badgerGet(badgerTxn, bk); err != nil {
 					return errors.Wrapf(err, "failed to get %s/%s", q.Bucket, q.Key)
 				}
+				q.Found = true
 			case database.Set:
 				if err := badgerTxn.Set(bk, q.Value); err != nil {
 					return errors.Wrapf(err, "failed to set %s/%s", q.Bucket, q.Key)

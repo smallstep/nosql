@@ -128,6 +128,9 @@ const (
 	// compare the values will the ones passed, and if they don't match the
 	// transaction will fail
 	CmpOrRollback
+	// LoadOrStore on a TxEntry will represent a read transaction that will
+	// store the accompanying value if one does not already exist at that index.
+	LoadOrStore
 )
 
 // String implements the fmt.Stringer interface on TxCmd.
@@ -143,6 +146,8 @@ func (o TxCmd) String() string {
 		return "write"
 	case Delete:
 		return "delete"
+	case LoadOrStore:
+		return "load-or-store"
 	case CmpAndSwap:
 		return "compare-and-swap"
 	case CmpOrRollback:
@@ -202,6 +207,16 @@ func (tx *Tx) Del(bucket, key []byte) {
 	})
 }
 
+// LoadOrStore adds a new load-or-store query to the transaction.
+func (tx *Tx) LoadOrStore(bucket, key, value []byte) {
+	tx.Operations = append(tx.Operations, &TxEntry{
+		Bucket: bucket,
+		Key:    key,
+		Value:  value,
+		Cmd:    LoadOrStore,
+	})
+}
+
 // Cas adds a new compare-and-swap query to the transaction.
 func (tx *Tx) Cas(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
@@ -228,7 +243,10 @@ type TxEntry struct {
 	Bucket []byte
 	Key    []byte
 	Value  []byte
+	// Where the result of Get or LoadOrStore txns is stored.
+	Result []byte
 	Cmd    TxCmd
+	Found  bool
 }
 
 // Entry is the return value for list commands.
