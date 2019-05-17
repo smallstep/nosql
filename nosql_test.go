@@ -16,10 +16,13 @@ type testUser struct {
 }
 
 func run(t *testing.T, db database.DB) {
+	var boogers = []byte("boogers")
+
 	ub := []byte("testNoSQLUsers")
 	assert.True(t, IsErrNotFound(db.DeleteTable(ub)))
 	assert.Nil(t, db.CreateTable(ub))
 
+	// List should be empty
 	entries, err := db.List(ub)
 	assert.Nil(t, err)
 	assert.Equals(t, len(entries), 0)
@@ -29,22 +32,40 @@ func run(t *testing.T, db database.DB) {
 	assert.True(t, IsErrNotFound(err))
 
 	// add mike
-	mike := testUser{"mike", "malone", 1}
-	mikeb, err := json.Marshal(mike)
-	assert.FatalError(t, err)
-	assert.Nil(t, db.Set(ub, []byte("mike"), mikeb))
+	assert.Nil(t, db.Set(ub, []byte("mike"), boogers))
 
 	// verify that mike is in db
 	res, err := db.Get(ub, []byte("mike"))
 	assert.FatalError(t, err)
-	assert.Equals(t, mikeb, res)
+	assert.Equals(t, boogers, res)
 
-	var found bool
-	// loadOrStore should load since mike already exists
-	res, found, err = db.LoadOrStore(ub, []byte("mike"), mikeb)
+	// overwrite mike
+	mike := testUser{"mike", "malone", 1}
+	mikeb, err := json.Marshal(mike)
+	assert.FatalError(t, err)
+
+	assert.Nil(t, db.Set(ub, []byte("mike"), mikeb))
+	// verify overwrite
+	res, err = db.Get(ub, []byte("mike"))
 	assert.FatalError(t, err)
 	assert.Equals(t, mikeb, res)
-	assert.True(t, found)
+
+	var swapped bool
+	// CmpAndSwap should load since mike is not nil
+	res, swapped, err = db.CmpAndSwap(ub, []byte("mike"), nil, boogers)
+	assert.FatalError(t, err)
+	assert.Equals(t, mikeb, res)
+	assert.False(t, swapped)
+	assert.Nil(t, err)
+
+	// delete mike
+	assert.FatalError(t, db.Del(ub, []byte("mike")))
+
+	// CmpAndSwap should overwrite mike since mike is nil
+	res, swapped, err = db.CmpAndSwap(ub, []byte("mike"), nil, boogers)
+	assert.FatalError(t, err)
+	assert.Equals(t, boogers, res)
+	assert.True(t, swapped)
 	assert.Nil(t, err)
 
 	// delete mike
@@ -54,17 +75,17 @@ func run(t *testing.T, db database.DB) {
 	_, err = db.Get(ub, []byte("mike"))
 	assert.True(t, IsErrNotFound(err))
 
-	// loadOrStore should store since mike does not exist
-	res, found, err = db.LoadOrStore(ub, []byte("mike"), mikeb)
+	// CmpAndSwap should store since mike does not exist
+	res, swapped, err = db.CmpAndSwap(ub, []byte("mike"), nil, mikeb)
 	assert.FatalError(t, err)
-	assert.Nil(t, res)
-	assert.False(t, found)
+	assert.Equals(t, res, mikeb)
+	assert.True(t, swapped)
 	assert.Nil(t, err)
 
 	// delete mike
 	assert.FatalError(t, db.Del(ub, []byte("mike")))
 
-	/* Update */
+	// Update //
 
 	// create txns for update test
 	mariano := testUser{"mariano", "Cano", 2}
@@ -77,11 +98,12 @@ func run(t *testing.T, db database.DB) {
 	gatesb, err := json.Marshal(gates)
 	assert.FatalError(t, err)
 
-	losGates := &database.TxEntry{
-		Bucket: ub,
-		Key:    []byte("bill"),
-		Value:  gatesb,
-		Cmd:    database.LoadOrStore,
+	casGates := &database.TxEntry{
+		Bucket:   ub,
+		Key:      []byte("bill"),
+		Value:    gatesb,
+		CmpValue: nil,
+		Cmd:      database.CmpAndSwap,
 	}
 	setMike := &database.TxEntry{
 		Bucket: ub,
@@ -111,15 +133,23 @@ func run(t *testing.T, db database.DB) {
 		Key:    []byte("sebastian"),
 		Cmd:    database.Get,
 	}
-	losGates2 := &database.TxEntry{
-		Bucket: ub,
-		Key:    []byte("bill"),
-		Value:  gatesb,
-		Cmd:    database.LoadOrStore,
+	casGates2 := &database.TxEntry{
+		Bucket:   ub,
+		Key:      []byte("bill"),
+		Value:    boogers,
+		CmpValue: gatesb,
+		Cmd:      database.CmpAndSwap,
+	}
+	casGates3 := &database.TxEntry{
+		Bucket:   ub,
+		Key:      []byte("bill"),
+		Value:    []byte("belly-button-lint"),
+		CmpValue: gatesb,
+		Cmd:      database.CmpAndSwap,
 	}
 
 	// update: read write multiple entries.
-	tx := &database.Tx{Operations: []*database.TxEntry{setMike, setMariano, readMike, setSeb, readSeb, losGates, losGates2}}
+	tx := &database.Tx{Operations: []*database.TxEntry{setMike, setMariano, readMike, setSeb, readSeb, casGates, casGates2, casGates3}}
 	assert.Nil(t, db.Update(tx))
 
 	// verify that mike is in db
@@ -135,7 +165,7 @@ func run(t *testing.T, db database.DB) {
 	// verify that bill gates is in db
 	res, err = db.Get(ub, []byte("bill"))
 	assert.FatalError(t, err)
-	assert.Equals(t, gatesb, res)
+	assert.Equals(t, boogers, res)
 
 	// verify that seb is in db
 	res, err = db.Get(ub, []byte("sebastian"))
@@ -148,15 +178,19 @@ func run(t *testing.T, db database.DB) {
 	// check that the readSeb update txn was successful
 	assert.Equals(t, readSeb.Result, sebb)
 
-	// check that the losGates update txn was a successful write
-	assert.False(t, losGates.Found)
-	assert.Nil(t, losGates.Result)
+	// check that the casGates update txn was a successful write
+	assert.True(t, casGates.Swapped)
+	assert.Equals(t, casGates.Result, gatesb)
 
-	// check that the losGates2 update txn was successful
-	assert.True(t, losGates2.Found)
-	assert.Equals(t, losGates2.Result, gatesb)
+	// check that the casGates2 update txn was successful
+	assert.True(t, casGates2.Swapped)
+	assert.Equals(t, casGates2.Result, boogers)
 
-	/* List */
+	// check that the casGates3 update txn was did not update.
+	assert.False(t, casGates3.Swapped)
+	assert.Equals(t, casGates3.Result, boogers)
+
+	// List //
 
 	_, err = db.List([]byte("clever"))
 	assert.True(t, IsErrNotFound(err))
@@ -165,7 +199,7 @@ func run(t *testing.T, db database.DB) {
 	assert.FatalError(t, err)
 	assert.Equals(t, len(entries), 4)
 
-	/* Update Again */
+	// Update Again //
 
 	// create txns for update test
 	max := testUser{"max", "furman", 6}

@@ -86,10 +86,10 @@ type DB interface {
 	Get(bucket, key []byte) (ret []byte, err error)
 	// Set sets the given value in the given table/bucket and key.
 	Set(bucket, key, value []byte) error
-	// LoadOrStore returns the value stored in the given table/bucket and key
-	// if it exists, otherwise it sets the value. Returns 'true' if the value
-	// was found, false otherwise.
-	LoadOrStore(bucket, key, value []byte) ([]byte, bool, error)
+	// CmpAndSwap swaps the value at the given bucket and key if the current
+	// value is equivalent to the oldValue input. Returns 'true' if the
+	// swap was successful and 'false' otherwise.
+	CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error)
 	// Del deletes the data in the given table/bucket and key.
 	Del(bucket, key []byte) error
 	// List returns a list of all the entries in a given table/bucket.
@@ -128,9 +128,6 @@ const (
 	// compare the values will the ones passed, and if they don't match the
 	// transaction will fail
 	CmpOrRollback
-	// LoadOrStore on a TxEntry will represent a read transaction that will
-	// store the accompanying value if one does not already exist at that index.
-	LoadOrStore
 )
 
 // String implements the fmt.Stringer interface on TxCmd.
@@ -146,8 +143,6 @@ func (o TxCmd) String() string {
 		return "write"
 	case Delete:
 		return "delete"
-	case LoadOrStore:
-		return "load-or-store"
 	case CmpAndSwap:
 		return "compare-and-swap"
 	case CmpOrRollback:
@@ -207,16 +202,6 @@ func (tx *Tx) Del(bucket, key []byte) {
 	})
 }
 
-// LoadOrStore adds a new load-or-store query to the transaction.
-func (tx *Tx) LoadOrStore(bucket, key, value []byte) {
-	tx.Operations = append(tx.Operations, &TxEntry{
-		Bucket: bucket,
-		Key:    key,
-		Value:  value,
-		Cmd:    LoadOrStore,
-	})
-}
-
 // Cas adds a new compare-and-swap query to the transaction.
 func (tx *Tx) Cas(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
@@ -240,13 +225,14 @@ func (tx *Tx) Cmp(bucket, key, value []byte) {
 // TxEntry is the base elements for the transactions, a TxEntry is a read or
 // write operation on the database.
 type TxEntry struct {
-	Bucket []byte
-	Key    []byte
-	Value  []byte
-	// Where the result of Get or LoadOrStore txns is stored.
-	Result []byte
-	Cmd    TxCmd
-	Found  bool
+	Bucket   []byte
+	Key      []byte
+	Value    []byte
+	CmpValue []byte
+	// Where the result of Get or CmpAndSwap txns is stored.
+	Result  []byte
+	Cmd     TxCmd
+	Swapped bool
 }
 
 // Entry is the return value for list commands.

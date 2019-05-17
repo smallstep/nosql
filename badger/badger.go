@@ -211,33 +211,45 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	return entries, err
 }
 
-// LoadOrStore stores a id/value pair in the table if the id is not yet set.
-func (db *DB) LoadOrStore(bucket, key, value []byte) ([]byte, bool, error) {
+// CmpAndSwap modifies the value at the given bucket and key (to newValue)
+// only if the existing (current) value matches oldValue.
+func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return nil, false, err
 	}
 
-	var (
-		ret   []byte
-		found bool
-	)
-	err = db.db.Update(func(badgerTxn *badger.Txn) (err error) {
-		ret, err = badgerGet(badgerTxn, bk)
-		switch {
-		case database.IsErrNotFound(err):
-			if err := badgerTxn.Set(bk, value); err != nil {
-				return errors.Wrapf(err, "failed to set %s/%s", bucket, key)
-			}
-			return nil
-		case err != nil:
-			return err
-		default:
-			found = true
-			return nil
+	badgerTxn := db.db.NewTransaction(true)
+	defer badgerTxn.Discard()
+
+	val, swapped, err := cmpAndSwap(badgerTxn, bk, oldValue, newValue)
+	switch {
+	case err != nil:
+		return nil, false, err
+	case swapped:
+		if err := badgerTxn.Commit(nil); err != nil {
+			return nil, false, errors.Wrapf(err, "failed to commit badger transaction")
 		}
-	})
-	return ret, found, err
+		return val, swapped, nil
+	default:
+		return val, swapped, err
+	}
+}
+
+func cmpAndSwap(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, bool, error) {
+	current, err := badgerGet(badgerTxn, bk)
+	// If value does not exist but expected is not nil, then return w/out swapping.
+	if err != nil && !database.IsErrNotFound(err) {
+		return nil, false, err
+	}
+	if !bytes.Equal(current, oldValue) {
+		return current, false, nil
+	}
+
+	if err := badgerTxn.Set(bk, newValue); err != nil {
+		return current, false, errors.Wrapf(err, "failed to set %s", bk)
+	}
+	return newValue, true, nil
 }
 
 // Update performs multiple commands on one read-write transaction.
@@ -261,24 +273,10 @@ func (db *DB) Update(txn *database.Tx) error {
 				return err
 			}
 			switch q.Cmd {
-			case database.LoadOrStore:
-				q.Result, err = badgerGet(badgerTxn, bk)
-				switch {
-				case database.IsErrNotFound(err):
-					if err := badgerTxn.Set(bk, q.Value); err != nil {
-						return errors.Wrapf(err, "failed to set %s/%s", q.Bucket, q.Key)
-					}
-					q.Found = false
-				case err != nil:
-					return err
-				default:
-					q.Found = true
-				}
 			case database.Get:
 				if q.Result, err = badgerGet(badgerTxn, bk); err != nil {
 					return errors.Wrapf(err, "failed to get %s/%s", q.Bucket, q.Key)
 				}
-				q.Found = true
 			case database.Set:
 				if err := badgerTxn.Set(bk, q.Value); err != nil {
 					return errors.Wrapf(err, "failed to set %s/%s", q.Bucket, q.Key)
@@ -288,7 +286,10 @@ func (db *DB) Update(txn *database.Tx) error {
 					return errors.Wrapf(err, "failed to delete %s/%s", q.Bucket, q.Key)
 				}
 			case database.CmpAndSwap:
-				return database.ErrOpNotSupported
+				q.Result, q.Swapped, err = cmpAndSwap(badgerTxn, bk, q.CmpValue, q.Value)
+				if err != nil {
+					return errors.Wrapf(err, "failed to CmpAndSwap %s/%s", q.Bucket, q.Key)
+				}
 			case database.CmpOrRollback:
 				return database.ErrOpNotSupported
 			default:

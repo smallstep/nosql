@@ -118,32 +118,49 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	return entries, err
 }
 
-// LoadOrStore stores a id/value pair in the table if the id is not yet set.
-func (db *DB) LoadOrStore(bucket, key, value []byte) ([]byte, bool, error) {
-	var (
-		ret   []byte
-		found bool
-	)
-	err := db.db.Update(func(boltTx *bolt.Tx) (err error) {
-		b, err := db.getBucket(boltTx, bucket)
-		if err != nil {
-			return err
+// CmpAndSwap modifies the value at the given bucket and key (to newValue)
+// only if the existing (current) value matches oldValue.
+func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+	boltTx, err := db.db.Begin(true)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "error creating Bolt transaction")
+	}
+
+	boltBucket := boltTx.Bucket(bucket)
+	if boltBucket == nil {
+		return nil, false, errors.Errorf("failed to get bucket %s", bucket)
+	}
+
+	val, swapped, err := cmpAndSwap(boltBucket, key, oldValue, newValue)
+	switch {
+	case err != nil:
+		if err := boltTx.Rollback(); err != nil {
+			return nil, false, errors.Wrapf(err, "failed to execute CmpAndSwap transaction on %s/%s and failed to rollback transaction", bucket, key)
 		}
-		ret = b.Get(key)
-		switch {
-		case ret == nil:
-			// Not Found, so try to set.
-			if err = b.Put(key, value); err != nil {
-				return errors.WithStack(err)
-			}
-			return nil
-		default:
-			// Found
-			found = true
-			return nil
+		return nil, false, err
+	case swapped:
+		if err := boltTx.Commit(); err != nil {
+			return nil, false, errors.Wrapf(err, "failed to commit badger transaction")
 		}
-	})
-	return ret, found, err
+		return val, swapped, nil
+	default:
+		if err := boltTx.Rollback(); err != nil {
+			return nil, false, errors.Wrapf(err, "failed to rollback read-only CmpAndSwap transaction on %s/%s", bucket, key)
+		}
+		return val, swapped, err
+	}
+}
+
+func cmpAndSwap(boltBucket *bolt.Bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+	current := boltBucket.Get(key)
+	if !bytes.Equal(current, oldValue) {
+		return cloneBytes(current), false, nil
+	}
+
+	if err := boltBucket.Put(key, newValue); err != nil {
+		return nil, false, errors.Wrapf(err, "failed to set key %s", key)
+	}
+	return newValue, true, nil
 }
 
 // Update performs multiple commands on one read-write transaction.
@@ -168,32 +185,15 @@ func (db *DB) Update(tx *database.Tx) error {
 			}
 
 			// For other operations, get bucket and perform operation
-			b, err = db.getBucket(boltTx, q.Bucket)
-			if err != nil {
-				return err
-			}
+			b = boltTx.Bucket(q.Bucket)
 
 			switch q.Cmd {
-			case database.LoadOrStore:
-				q.Result = b.Get(q.Key)
-				switch {
-				case q.Result == nil:
-					// Not Found, so try to set.
-					if err = b.Put(q.Key, q.Value); err != nil {
-						return errors.Wrapf(err, "failed to set %s/%s", q.Key, q.Value)
-					}
-					q.Result, q.Found = nil, false
-				default:
-					// Found
-					q.Found = true
-				}
 			case database.Get:
 				ret := b.Get(q.Key)
 				if ret == nil {
 					return errors.WithStack(database.ErrNotFound)
 				}
 				q.Result = cloneBytes(ret)
-				q.Found = true
 			case database.Set:
 				if err = b.Put(q.Key, q.Value); err != nil {
 					return errors.WithStack(err)
@@ -203,7 +203,10 @@ func (db *DB) Update(tx *database.Tx) error {
 					return errors.WithStack(err)
 				}
 			case database.CmpAndSwap:
-				return errors.Errorf("operation '%s' is not yet implemented", q.Cmd)
+				q.Result, q.Swapped, err = cmpAndSwap(b, q.Key, q.CmpValue, q.Value)
+				if err != nil {
+					return errors.Wrapf(err, "failed to execute CmpAndSwap on %s/%s", q.Bucket, q.Key)
+				}
 			case database.CmpOrRollback:
 				return errors.Errorf("operation '%s' is not yet implemented", q.Cmd)
 			default:
