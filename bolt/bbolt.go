@@ -253,7 +253,7 @@ func (db *DB) deleteBucket(tx *bolt.Tx, name []byte) (err error) {
 	buckets := bytes.Split(name, boltDBSep)
 	last := len(buckets) - 1
 	for i := 0; i < last; i++ {
-		if b = b.Bucket(buckets[i]); b == nil {
+		if buck := b.Bucket(buckets[i]); buck == nil {
 			return errors.Wrapf(database.ErrNotFound, "bucket %s does not exist", bytes.Join(buckets[0:i+1], boltDBSep))
 		}
 	}

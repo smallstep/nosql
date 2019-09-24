@@ -62,7 +62,7 @@ func delQry(bucket []byte) string {
 }
 
 func createTableQry(bucket []byte) string {
-	return fmt.Sprintf("CREATE TABLE %s(nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (nkey));", bucket)
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (nkey));", bucket)
 }
 
 func deleteTableQry(bucket []byte) string {

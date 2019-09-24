@@ -21,6 +21,8 @@ func run(t *testing.T, db database.DB) {
 	ub := []byte("testNoSQLUsers")
 	assert.True(t, IsErrNotFound(db.DeleteTable(ub)))
 	assert.Nil(t, db.CreateTable(ub))
+	// Verify that re-creating the table does not cause a "table already exists" error
+	assert.Nil(t, db.CreateTable(ub))
 
 	// List should be empty
 	entries, err := db.List(ub)

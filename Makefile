@@ -5,9 +5,6 @@ SRC=$(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOOS_OVERRIDE ?=
 OUTPUT_ROOT=output/
 
-# Set shell to bash for `echo -e`
-SHELL := /bin/bash
-
 all: test lint
 
 travis: travis-test lint
@@ -21,24 +18,16 @@ travis: travis-test lint
 bootstra%:
 	$Q which dep || go get github.com/golang/dep/cmd/dep
 	$Q dep ensure
+	$Q GO111MODULE=on go get github.com/golangci/golangci-lint/cmd/golangci-lint@v1.18.0
 
 vendor: Gopkg.lock
 	$Q dep ensure
-
-BOOTSTRAP=\
-	github.com/golang/lint/golint \
-	github.com/client9/misspell/cmd/misspell \
-	github.com/gordonklaus/ineffassign \
-	github.com/tsenart/deadcode \
-	github.com/alecthomas/gometalinter
 
 define VENDOR_BIN_TMPL
 vendor/bin/$(notdir $(1)): vendor
 	$Q go build -o $$@ ./vendor/$(1)
 VENDOR_BINS += vendor/bin/$(notdir $(1))
 endef
-
-$(foreach pkg,$(BOOTSTRAP),$(eval $(call VENDOR_BIN_TMPL,$(pkg))))
 
 .PHONY: bootstra% vendor
 
@@ -74,41 +63,19 @@ test:
 travis-test:
 	$Q $(GOFLAGS) TRAVIS=1 go test -short -coverprofile=coverage.out ./...
 
-vtest:
-	$(Q)for d in $$(go list ./... | grep -v vendor); do \
-    echo -e "TESTS FOR: for \033[0;35m$$d\033[0m"; \
-    $(GOFLAGS) go test -v -bench=. -run=. -short -coverprofile=vcoverage.out $$d; \
-	out=$$?; \
-	if [[ $$out -ne 0 ]]; then ret=$$out; fi;\
-    rm -f profile.coverage.out; \
-	done; exit $$ret;
-
-.PHONY: test vtest
+.PHONY: test travis-test
 
 #########################################
 # Linting
 #########################################
 
-LINTERS=\
-	gofmt \
-	golint \
-	vet \
-	misspell \
-	ineffassign \
-	deadcode
-
-$(patsubst %,%-bin,$(filter-out gofmt vet,$(LINTERS))): %-bin: vendor/bin/%
-gofmt-bin vet-bin:
-
-$(LINTERS): %: vendor/bin/gometalinter %-bin vendor
-	$Q PATH=`pwd`/vendor/bin:$$PATH gometalinter --tests --disable-all --vendor \
-	     --deadline=5m -s data -s pkg --enable $@ ./...
 fmt:
 	$Q gofmt -l -w $(SRC)
 
-lint: $(LINTERS)
+lint:
+	$Q LOG_LEVEL=error golangci-lint run
 
-.PHONY: $(LINTERS) lint fmt
+.PHONY: lint fmt
 
 #########################################
 # Clean

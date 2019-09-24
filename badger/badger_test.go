@@ -191,10 +191,6 @@ func Test_isBadgerTable(t *testing.T) {
 	type args struct {
 		bk []byte
 	}
-	type ret struct {
-		bucket []byte
-		key    []byte
-	}
 	tests := []struct {
 		name string
 		args args
