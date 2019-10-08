@@ -50,23 +50,23 @@ func (db *DB) Close() error {
 }
 
 func getQry(bucket []byte) string {
-	return fmt.Sprintf("SELECT nvalue FROM %s WHERE nkey = ?", bucket)
+	return fmt.Sprintf("SELECT nvalue FROM `%s` WHERE nkey = ?", bucket)
 }
 
 func insertUpdateQry(bucket []byte) string {
-	return fmt.Sprintf("INSERT INTO %s(nkey, nvalue) VALUES(?,?) ON DUPLICATE KEY UPDATE nvalue = ?", bucket)
+	return fmt.Sprintf("INSERT INTO `%s`(nkey, nvalue) VALUES(?,?) ON DUPLICATE KEY UPDATE nvalue = ?", bucket)
 }
 
 func delQry(bucket []byte) string {
-	return fmt.Sprintf("DELETE FROM %s WHERE nkey = ?", bucket)
+	return fmt.Sprintf("DELETE FROM `%s` WHERE nkey = ?", bucket)
 }
 
 func createTableQry(bucket []byte) string {
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (nkey));", bucket)
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s`(nkey VARBINARY(255), nvalue BLOB, PRIMARY KEY (nkey));", bucket)
 }
 
 func deleteTableQry(bucket []byte) string {
-	return fmt.Sprintf("DROP TABLE %s", bucket)
+	return fmt.Sprintf("DROP TABLE `%s`", bucket)
 }
 
 // Get retrieves the column/row with given key.
@@ -100,7 +100,7 @@ func (db *DB) Del(bucket, key []byte) error {
 
 // List returns the full list of entries in a column.
 func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
-	rows, err := db.db.Query(fmt.Sprintf("SELECT * FROM %s", bucket))
+	rows, err := db.db.Query(fmt.Sprintf("SELECT * FROM `%s`", bucket))
 	if err != nil {
 		estr := err.Error()
 		if strings.HasPrefix(estr, "Error 1146:") {
