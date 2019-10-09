@@ -24,6 +24,13 @@ func run(t *testing.T, db database.DB) {
 	// Verify that re-creating the table does not cause a "table already exists" error
 	assert.Nil(t, db.CreateTable(ub))
 
+	// Test that we can create tables with illegal/special characters (e.g. `-`)
+	illName := []byte("test-special-char")
+	assert.Nil(t, db.CreateTable(illName))
+	assert.Nil(t, db.DeleteTable(illName))
+	_, err := db.List(illName)
+	assert.True(t, IsErrNotFound(err))
+
 	// List should be empty
 	entries, err := db.List(ub)
 	assert.Nil(t, err)
