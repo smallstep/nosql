@@ -16,20 +16,9 @@ travis: travis-test lint
 #########################################
 
 bootstra%:
-	$Q which dep || go get github.com/golang/dep/cmd/dep
-	$Q dep ensure
 	$Q GO111MODULE=on go get github.com/golangci/golangci-lint/cmd/golangci-lint@v1.18.0
 
-vendor: Gopkg.lock
-	$Q dep ensure
-
-define VENDOR_BIN_TMPL
-vendor/bin/$(notdir $(1)): vendor
-	$Q go build -o $$@ ./vendor/$(1)
-VENDOR_BINS += vendor/bin/$(notdir $(1))
-endef
-
-.PHONY: bootstra% vendor
+.PHONY: bootstra%
 
 #################################################
 # Determine the type of `push` and `version`
@@ -82,8 +71,6 @@ lint:
 #########################################
 
 clean:
-	@echo "You will need to run 'make bootstrap' or 'dep ensure' directly to re-download any dependencies."
-	$Q rm -rf vendor
 ifneq ($(BINNAME),"")
 	$Q rm -f bin/$(BINNAME)
 endif
