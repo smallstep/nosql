@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/v2"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
@@ -23,12 +23,9 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 		}
 	}
 
-	bo := badger.DefaultOptions
-	bo.Dir = dir
+	bo := badger.DefaultOptions(dir)
 	if opts.ValueDir != "" {
 		bo.ValueDir = opts.ValueDir
-	} else {
-		bo.ValueDir = dir
 	}
 
 	db.db, err = badger.Open(bo)
@@ -119,7 +116,7 @@ func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
 	case err != nil:
 		return nil, errors.Wrapf(err, "failed to get key %s", key)
 	default:
-		val, err := item.Value()
+		val, err := item.ValueCopy(nil)
 		if err != nil {
 			return nil, errors.Wrap(err, "error accessing value returned by database")
 		}
@@ -193,7 +190,7 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 				return errors.Errorf("bucket names do not match; want %v, but got %v",
 					bucket, _bucket)
 			}
-			v, err := item.Value()
+			v, err := item.ValueCopy(nil)
 			if err != nil {
 				return errors.Wrap(err, "error retrieving contents from database value")
 			}
@@ -227,7 +224,7 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	case err != nil:
 		return nil, false, err
 	case swapped:
-		if err := badgerTxn.Commit(nil); err != nil {
+		if err := badgerTxn.Commit(); err != nil {
 			return nil, false, errors.Wrapf(err, "failed to commit badger transaction")
 		}
 		return val, swapped, nil
