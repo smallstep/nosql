@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/v2"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
 
-// DB is a wrapper over *badger.DB,
+// DB is a wrapper over *badger/v2.DB,
 type DB struct {
 	db *badger.DB
 }
@@ -23,12 +23,9 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 		}
 	}
 
-	bo := badger.DefaultOptions
-	bo.Dir = dir
+	bo := badger.DefaultOptions(dir)
 	if opts.ValueDir != "" {
 		bo.ValueDir = opts.ValueDir
-	} else {
-		bo.ValueDir = dir
 	}
 
 	db.db, err = badger.Open(bo)
@@ -110,8 +107,8 @@ func (db *DB) DeleteTable(bucket []byte) error {
 	return err
 }
 
-// badgerGet is a helper for the Get method.
-func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
+// badgerGetV2 is a helper for the Get method.
+func badgerGetV2(txn *badger.Txn, key []byte) ([]byte, error) {
 	item, err := txn.Get(key)
 	switch {
 	case err == badger.ErrKeyNotFound:
@@ -119,7 +116,7 @@ func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
 	case err != nil:
 		return nil, errors.Wrapf(err, "failed to get key %s", key)
 	default:
-		val, err := item.Value()
+		val, err := item.ValueCopy(nil)
 		if err != nil {
 			return nil, errors.Wrap(err, "error accessing value returned by database")
 		}
@@ -137,7 +134,7 @@ func (db *DB) Get(bucket, key []byte) (ret []byte, err error) {
 		return nil, errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
 	}
 	err = db.db.View(func(txn *badger.Txn) error {
-		ret, err = badgerGet(txn, bk)
+		ret, err = badgerGetV2(txn, bk)
 		return err
 	})
 	return
@@ -193,7 +190,7 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 				return errors.Errorf("bucket names do not match; want %v, but got %v",
 					bucket, _bucket)
 			}
-			v, err := item.Value()
+			v, err := item.ValueCopy(nil)
 			if err != nil {
 				return errors.Wrap(err, "error retrieving contents from database value")
 			}
@@ -222,12 +219,12 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	badgerTxn := db.db.NewTransaction(true)
 	defer badgerTxn.Discard()
 
-	val, swapped, err := cmpAndSwap(badgerTxn, bk, oldValue, newValue)
+	val, swapped, err := cmpAndSwapV2(badgerTxn, bk, oldValue, newValue)
 	switch {
 	case err != nil:
 		return nil, false, err
 	case swapped:
-		if err := badgerTxn.Commit(nil); err != nil {
+		if err := badgerTxn.Commit(); err != nil {
 			return nil, false, errors.Wrapf(err, "failed to commit badger transaction")
 		}
 		return val, swapped, nil
@@ -236,8 +233,8 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	}
 }
 
-func cmpAndSwap(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, bool, error) {
-	current, err := badgerGet(badgerTxn, bk)
+func cmpAndSwapV2(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, bool, error) {
+	current, err := badgerGetV2(badgerTxn, bk)
 	// If value does not exist but expected is not nil, then return w/out swapping.
 	if err != nil && !database.IsErrNotFound(err) {
 		return nil, false, err
@@ -274,7 +271,7 @@ func (db *DB) Update(txn *database.Tx) error {
 			}
 			switch q.Cmd {
 			case database.Get:
-				if q.Result, err = badgerGet(badgerTxn, bk); err != nil {
+				if q.Result, err = badgerGetV2(badgerTxn, bk); err != nil {
 					return errors.Wrapf(err, "failed to get %s/%s", q.Bucket, q.Key)
 				}
 			case database.Set:
@@ -286,7 +283,7 @@ func (db *DB) Update(txn *database.Tx) error {
 					return errors.Wrapf(err, "failed to delete %s/%s", q.Bucket, q.Key)
 				}
 			case database.CmpAndSwap:
-				q.Result, q.Swapped, err = cmpAndSwap(badgerTxn, bk, q.CmpValue, q.Value)
+				q.Result, q.Swapped, err = cmpAndSwapV2(badgerTxn, bk, q.CmpValue, q.Value)
 				if err != nil {
 					return errors.Wrapf(err, "failed to CmpAndSwap %s/%s", q.Bucket, q.Key)
 				}

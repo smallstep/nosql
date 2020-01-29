@@ -37,6 +37,6 @@ func New(driver, dataSourceName string, opt ...Option) (db database.DB, err erro
 	default:
 		return nil, errors.Errorf("%s database not supported", driver)
 	}
-	err = db.Open(dataSourceName, opt...)
+	err = errors.Wrap(db.Open(dataSourceName, opt...), "error opening database")
 	return
 }
