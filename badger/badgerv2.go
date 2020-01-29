@@ -2,20 +2,19 @@ package badger
 
 import (
 	"bytes"
-	"encoding/binary"
 
-	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/v2"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
 
-// DB is a wrapper over *badger.DB,
-type DB struct {
+// DBv2 is a wrapper over *badger/v2.DB,
+type DBv2 struct {
 	db *badger.DB
 }
 
 // Open opens or creates a BoltDB database in the given path.
-func (db *DB) Open(dir string, opt ...database.Option) (err error) {
+func (db *DBv2) Open(dir string, opt ...database.Option) (err error) {
 	opts := &database.Options{}
 	for _, o := range opt {
 		if err := o(opts); err != nil {
@@ -33,13 +32,13 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 }
 
 // Close closes the DB database.
-func (db *DB) Close() error {
+func (db *DBv2) Close() error {
 	return errors.Wrap(db.db.Close(), "error closing Badger database")
 }
 
 // CreateTable creates a token element with the 'bucket' prefix so that such
 // that their appears to be a table.
-func (db *DB) CreateTable(bucket []byte) error {
+func (db *DBv2) CreateTable(bucket []byte) error {
 	bk, err := badgerEncode(bucket)
 	if err != nil {
 		return err
@@ -51,7 +50,7 @@ func (db *DB) CreateTable(bucket []byte) error {
 
 // DeleteTable deletes a root or embedded bucket. Returns an error if the
 // bucket cannot be found or if the key represents a non-bucket value.
-func (db *DB) DeleteTable(bucket []byte) error {
+func (db *DBv2) DeleteTable(bucket []byte) error {
 	var tableExists bool
 	prefix, err := badgerEncode(bucket)
 	if err != nil {
@@ -107,8 +106,8 @@ func (db *DB) DeleteTable(bucket []byte) error {
 	return err
 }
 
-// badgerGet is a helper for the Get method.
-func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
+// badgerGetV2 is a helper for the Get method.
+func badgerGetV2(txn *badger.Txn, key []byte) ([]byte, error) {
 	item, err := txn.Get(key)
 	switch {
 	case err == badger.ErrKeyNotFound:
@@ -128,20 +127,20 @@ func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
 }
 
 // Get returns the value stored in the given bucked and key.
-func (db *DB) Get(bucket, key []byte) (ret []byte, err error) {
+func (db *DBv2) Get(bucket, key []byte) (ret []byte, err error) {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
 	}
 	err = db.db.View(func(txn *badger.Txn) error {
-		ret, err = badgerGet(txn, bk)
+		ret, err = badgerGetV2(txn, bk)
 		return err
 	})
 	return
 }
 
 // Set stores the given value on bucket and key.
-func (db *DB) Set(bucket, key, value []byte) error {
+func (db *DBv2) Set(bucket, key, value []byte) error {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
@@ -152,7 +151,7 @@ func (db *DB) Set(bucket, key, value []byte) error {
 }
 
 // Del deletes the value stored in the given bucked and key.
-func (db *DB) Del(bucket, key []byte) error {
+func (db *DBv2) Del(bucket, key []byte) error {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
@@ -163,7 +162,7 @@ func (db *DB) Del(bucket, key []byte) error {
 }
 
 // List returns the full list of entries in a bucket.
-func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
+func (db *DBv2) List(bucket []byte) ([]*database.Entry, error) {
 	var (
 		entries     []*database.Entry
 		tableExists bool
@@ -210,7 +209,7 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 
 // CmpAndSwap modifies the value at the given bucket and key (to newValue)
 // only if the existing (current) value matches oldValue.
-func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+func (db *DBv2) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return nil, false, err
@@ -219,7 +218,7 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	badgerTxn := db.db.NewTransaction(true)
 	defer badgerTxn.Discard()
 
-	val, swapped, err := cmpAndSwap(badgerTxn, bk, oldValue, newValue)
+	val, swapped, err := cmpAndSwapV2(badgerTxn, bk, oldValue, newValue)
 	switch {
 	case err != nil:
 		return nil, false, err
@@ -233,8 +232,8 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	}
 }
 
-func cmpAndSwap(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, bool, error) {
-	current, err := badgerGet(badgerTxn, bk)
+func cmpAndSwapV2(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, bool, error) {
+	current, err := badgerGetV2(badgerTxn, bk)
 	// If value does not exist but expected is not nil, then return w/out swapping.
 	if err != nil && !database.IsErrNotFound(err) {
 		return nil, false, err
@@ -250,7 +249,7 @@ func cmpAndSwap(badgerTxn *badger.Txn, bk, oldValue, newValue []byte) ([]byte, b
 }
 
 // Update performs multiple commands on one read-write transaction.
-func (db *DB) Update(txn *database.Tx) error {
+func (db *DBv2) Update(txn *database.Tx) error {
 	return db.db.Update(func(badgerTxn *badger.Txn) (err error) {
 		for _, q := range txn.Operations {
 			switch q.Cmd {
@@ -271,7 +270,7 @@ func (db *DB) Update(txn *database.Tx) error {
 			}
 			switch q.Cmd {
 			case database.Get:
-				if q.Result, err = badgerGet(badgerTxn, bk); err != nil {
+				if q.Result, err = badgerGetV2(badgerTxn, bk); err != nil {
 					return errors.Wrapf(err, "failed to get %s/%s", q.Bucket, q.Key)
 				}
 			case database.Set:
@@ -283,7 +282,7 @@ func (db *DB) Update(txn *database.Tx) error {
 					return errors.Wrapf(err, "failed to delete %s/%s", q.Bucket, q.Key)
 				}
 			case database.CmpAndSwap:
-				q.Result, q.Swapped, err = cmpAndSwap(badgerTxn, bk, q.CmpValue, q.Value)
+				q.Result, q.Swapped, err = cmpAndSwapV2(badgerTxn, bk, q.CmpValue, q.Value)
 				if err != nil {
 					return errors.Wrapf(err, "failed to CmpAndSwap %s/%s", q.Bucket, q.Key)
 				}
@@ -295,97 +294,4 @@ func (db *DB) Update(txn *database.Tx) error {
 		}
 		return nil
 	})
-}
-
-// toBadgerKey returns the Badger database key using the following algorithm:
-// First 2 bytes are the length of the bucket/table name in little endian format,
-// followed by the bucket/table name,
-// followed by 2 bytes representing the length of the key in little endian format,
-// followed by the key.
-func toBadgerKey(bucket, key []byte) ([]byte, error) {
-	first, err := badgerEncode(bucket)
-	if err != nil {
-		return nil, err
-	}
-	second, err := badgerEncode(key)
-	if err != nil {
-		return nil, err
-	}
-	return append(first, second...), nil
-}
-
-// isBadgerTable returns True if the slice is a badgerTable token, false otherwise.
-// badgerTable means that the slice contains only the [size|value] of one section
-// of a badgerKey and no remainder. A badgerKey is [buket|key], while a badgerTable
-// is only the bucket section.
-func isBadgerTable(bk []byte) bool {
-	if k, rest := parseBadgerEncode(bk); len(k) > 0 && len(rest) == 0 {
-		return true
-	}
-	return false
-}
-
-// fromBadgerKey returns the bucket and key encoded in a BadgerKey.
-// See documentation for toBadgerKey.
-func fromBadgerKey(bk []byte) ([]byte, []byte, error) {
-	bucket, rest := parseBadgerEncode(bk)
-	if len(bucket) == 0 || len(rest) == 0 {
-		return nil, nil, errors.Errorf("invalid badger key: %v", bk)
-	}
-
-	key, rest2 := parseBadgerEncode(rest)
-	if len(key) == 0 || len(rest2) != 0 {
-		return nil, nil, errors.Errorf("invalid badger key: %v", bk)
-	}
-
-	return bucket, key, nil
-}
-
-// badgerEncode encodes a byte slice into a section of a BadgerKey.
-// See documentation for toBadgerKey.
-func badgerEncode(val []byte) ([]byte, error) {
-	l := len(val)
-	switch {
-	case l == 0:
-		return nil, errors.Errorf("input cannot be empty")
-	case l > 65535:
-		return nil, errors.Errorf("length of input cannot be greater than 65535")
-	default:
-		lb := new(bytes.Buffer)
-		if err := binary.Write(lb, binary.LittleEndian, uint16(l)); err != nil {
-			return nil, errors.Wrap(err, "error doing binary Write")
-		}
-		return append(lb.Bytes(), val...), nil
-	}
-}
-
-func parseBadgerEncode(bk []byte) (value, rest []byte) {
-	var (
-		keyLen uint16
-		start  = uint16(2)
-		length = uint16(len(bk))
-	)
-	if uint16(len(bk)) < start {
-		return nil, bk
-	}
-	// First 2 bytes stores the length of the value.
-	if err := binary.Read(bytes.NewReader(bk[:2]), binary.LittleEndian, &keyLen); err != nil {
-		return nil, bk
-	}
-	end := start + keyLen
-	switch {
-	case length < end:
-		return nil, bk
-	case length == end:
-		return bk[start:end], nil
-	default:
-		return bk[start:end], bk[end:]
-	}
-}
-
-// cloneBytes returns a copy of a given slice.
-func cloneBytes(v []byte) []byte {
-	var clone = make([]byte, len(v))
-	copy(clone, v)
-	return clone
 }

@@ -1,6 +1,8 @@
 package nosql
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/badger"
 	"github.com/smallstep/nosql/bolt"
@@ -29,7 +31,11 @@ var (
 func New(driver, dataSourceName string, opt ...Option) (db database.DB, err error) {
 	switch driver {
 	case "badger":
-		db = &badger.DB{}
+		db = &badger.DBv2{}
+		if err = db.Open(dataSourceName, opt...); err != nil {
+			fmt.Printf("err = %+v\n", err)
+			return nil, err
+		}
 	case "bbolt":
 		db = &bolt.DB{}
 	case "mysql":
