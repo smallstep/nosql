@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 
 	"github.com/dgraph-io/badger/v2"
+	"github.com/dgraph-io/badger/v2/options"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
@@ -24,6 +25,8 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 	}
 
 	bo := badger.DefaultOptions(dir)
+	// TODO: this is a test for 32 bit mem system.
+	bo.ValueLogLoadingMode = options.FileIO
 	if opts.ValueDir != "" {
 		bo.ValueDir = opts.ValueDir
 	}
