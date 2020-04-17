@@ -3,6 +3,7 @@ package nosql
 import (
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/badger"
+	badgerV2 "github.com/smallstep/nosql/badgerV2"
 	"github.com/smallstep/nosql/bolt"
 	"github.com/smallstep/nosql/database"
 	"github.com/smallstep/nosql/mysql"
@@ -30,6 +31,8 @@ func New(driver, dataSourceName string, opt ...Option) (db database.DB, err erro
 	switch driver {
 	case "badger":
 		db = &badger.DB{}
+	case "badgerV2":
+		db = &badgerV2.DB{}
 	case "bbolt":
 		db = &bolt.DB{}
 	case "mysql":
