@@ -3,8 +3,10 @@ package badger
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 
 	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/options"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
@@ -24,6 +26,18 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 	}
 
 	bo := badger.DefaultOptions
+
+	// Set the ValueLogLoadingMode - default is MemoryMap. Low memory/RAM
+	// systems may want to use FileIO.
+	switch strings.ToLower(opts.BadgerValueLogLoadingMode) {
+	case "", "memorymap":
+		bo.ValueLogLoadingMode = options.MemoryMap
+	case "fileio":
+		bo.ValueLogLoadingMode = options.FileIO
+	default:
+		return badger.ErrInvalidLoadingMode
+	}
+
 	bo.Dir = dir
 	if opts.ValueDir != "" {
 		bo.ValueDir = opts.ValueDir

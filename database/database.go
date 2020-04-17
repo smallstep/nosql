@@ -53,8 +53,9 @@ func cause(err error) error {
 
 // Options are configuration options for the database.
 type Options struct {
-	Database string
-	ValueDir string
+	Database                  string
+	ValueDir                  string
+	BadgerValueLogLoadingMode string
 }
 
 // Option is the modifier type over Options.
@@ -72,6 +73,15 @@ func WithValueDir(path string) Option {
 func WithDatabase(db string) Option {
 	return func(o *Options) error {
 		o.Database = db
+		return nil
+	}
+}
+
+// WithBadgerValueLogLoadingMode is a modifier that sets the ValueLogLoadingMode
+// of Badger db.
+func WithBadgerValueLogLoadingMode(mode string) Option {
+	return func(o *Options) error {
+		o.BadgerValueLogLoadingMode = mode
 		return nil
 	}
 }
