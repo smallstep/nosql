@@ -31,7 +31,7 @@ var (
 // New returns a database with the given driver.
 func New(driver, dataSourceName string, opt ...Option) (db database.DB, err error) {
 	switch driver {
-	case "badger":
+	case "badger", "badgerV1":
 		db = &badger.DB{}
 	case "badgerV2":
 		db = &badgerV2.DB{}
