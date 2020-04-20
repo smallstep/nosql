@@ -1,4 +1,4 @@
-package badger
+package v1
 
 import (
 	"errors"

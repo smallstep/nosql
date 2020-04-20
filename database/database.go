@@ -53,9 +53,9 @@ func cause(err error) error {
 
 // Options are configuration options for the database.
 type Options struct {
-	Database                  string
-	ValueDir                  string
-	BadgerValueLogLoadingMode string
+	Database              string
+	ValueDir              string
+	BadgerFileLoadingMode string
 }
 
 // Option is the modifier type over Options.
@@ -77,11 +77,11 @@ func WithDatabase(db string) Option {
 	}
 }
 
-// WithBadgerValueLogLoadingMode is a modifier that sets the ValueLogLoadingMode
+// WithBadgerFileLoadingMode is a modifier that sets the ValueLogLoadingMode
 // of Badger db.
-func WithBadgerValueLogLoadingMode(mode string) Option {
+func WithBadgerFileLoadingMode(mode string) Option {
 	return func(o *Options) error {
-		o.BadgerValueLogLoadingMode = mode
+		o.BadgerFileLoadingMode = mode
 		return nil
 	}
 }
@@ -111,6 +111,12 @@ type DB interface {
 	// DeleteTable deletes a table or a bucket in the database.
 	DeleteTable(bucket []byte) error
 }
+
+// Badger FileLoadingMode constants.
+const (
+	BadgerMemoryMap = "mmap"
+	BadgerFileIO    = "fileio"
+)
 
 // TxCmd is the type used to represent database command and operations.
 type TxCmd int
