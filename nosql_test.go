@@ -11,7 +11,7 @@ import (
 )
 
 type testUser struct {
-	fname, lname string
+	Fname, lname string
 	numPets      int
 }
 
