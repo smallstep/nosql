@@ -16,7 +16,7 @@ travis: travis-test lint
 #########################################
 
 bootstra%:
-	$Q GO111MODULE=on go get github.com/golangci/golangci-lint/cmd/golangci-lint@v1.18.0
+	$Q curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.24.0
 
 .PHONY: bootstra%
 
