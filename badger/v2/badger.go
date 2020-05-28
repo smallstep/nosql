@@ -41,6 +41,7 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 		return badger.ErrInvalidLoadingMode
 	}
 
+	bo.ValueLogFileSize = 1 << 20
 	db.db, err = badger.Open(bo)
 	return errors.Wrap(err, "error opening Badger database")
 }
