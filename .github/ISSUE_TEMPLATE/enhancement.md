@@ -1,6 +1,6 @@
 ---
-name: CLI Enhancement
-about: Suggest an enhancement to step cli
+name: Enhancement
+about: Suggest an enhancement to nosql
 title: ''
 labels: enhancement, needs triage
 assignees: ''

@@ -2,7 +2,7 @@
 name: Documentation Request
 about: Request documentation for a feature
 title: ''
-labels: docs, needs triage
+labels: needs triage
 assignees: ''
 
 ---
