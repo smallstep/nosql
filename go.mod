@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/dgraph-io/badger v1.6.2
-	github.com/dgraph-io/badger/v2 v2.0.1-rc1.0.20201003150343-5d1bab4fc658
+	github.com/dgraph-io/badger/v2 v2.2007.3
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang/protobuf v1.4.3 // indirect
