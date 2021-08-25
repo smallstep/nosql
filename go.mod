@@ -3,13 +3,11 @@ module github.com/smallstep/nosql
 go 1.14
 
 require (
-	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/dgraph-io/badger v1.6.2
-	github.com/dgraph-io/badger/v2 v2.2007.3
+	github.com/dgraph-io/badger/v2 v2.2007.4
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang/protobuf v1.4.3 // indirect
-	github.com/golang/snappy v0.0.2 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/smallstep/assert v0.0.0-20180720014142-de77670473b5
 	go.etcd.io/bbolt v1.3.5
