@@ -1,9 +1,9 @@
 package database
 
 import (
-	"fmt"
-
 	"errors"
+	"fmt"
+	"time"
 )
 
 var (
@@ -96,6 +96,8 @@ type DB interface {
 	Get(bucket, key []byte) (ret []byte, err error)
 	// Set sets the given value in the given table/bucket and key.
 	Set(bucket, key, value []byte) error
+	// SetX509Certificate sets the given value in the x509 certificate table/bucket and key.
+	SetX509Certificate(bucket, key, value []byte, notBefore time.Time, notAfter time.Time, province []string, locality []string, country []string, organization []string, organizationalUnit []string, commonName string, issuer string) error
 	// CmpAndSwap swaps the value at the given bucket and key if the current
 	// value is equivalent to the oldValue input. Returns 'true' if the
 	// swap was successful and 'false' otherwise.
@@ -108,6 +110,8 @@ type DB interface {
 	Update(tx *Tx) error
 	// CreateTable creates a table or a bucket in the database.
 	CreateTable(bucket []byte) error
+	// CreateX509CertificateTable creates a x509cert table or a bucket in the database.
+	CreateX509CertificateTable(bucket []byte) error
 	// DeleteTable deletes a table or a bucket in the database.
 	DeleteTable(bucket []byte) error
 }
@@ -125,6 +129,9 @@ const (
 	// CreateTable on a TxEntry will represent the creation of a table or
 	// bucket on the database.
 	CreateTable TxCmd = iota
+	// CreateX509CertificateTable on a TxEntry will represent the creation of a table or
+	// bucket on the database.
+	CreateX509CertificateTable TxCmd = iota
 	// DeleteTable on a TxEntry will represent the deletion of a table or
 	// bucket on the database.
 	DeleteTable
@@ -134,6 +141,9 @@ const (
 	// Set on a TxEntry will represent a command to write data on the
 	// database.
 	Set
+	// Set on a TxEntry will represent a command to write an x509 certificate on the
+	// database.
+	SetX509Certificate
 	// Delete on a TxEntry represent a command to delete data on the database.
 	Delete
 	// CmpAndSwap on a TxEntry will represent a compare and swap operation on
@@ -151,12 +161,16 @@ func (o TxCmd) String() string {
 	switch o {
 	case CreateTable:
 		return "create-table"
+	case CreateX509CertificateTable:
+		return "create-x509cert-table"
 	case DeleteTable:
 		return "delete-table"
 	case Get:
 		return "read"
 	case Set:
 		return "write"
+	case SetX509Certificate:
+		return "write-x509certificate"
 	case Delete:
 		return "delete"
 	case CmpAndSwap:
@@ -172,6 +186,14 @@ func (o TxCmd) String() string {
 // represents a read or write operation on the database.
 type Tx struct {
 	Operations []*TxEntry
+}
+
+// CreateX509CertificateTable adds a new create query to the transaction.
+func (tx *Tx) CreateX509CertificateTable(bucket []byte) {
+	tx.Operations = append(tx.Operations, &TxEntry{
+		Bucket: bucket,
+		Cmd:    CreateX509CertificateTable,
+	})
 }
 
 // CreateTable adds a new create query to the transaction.
@@ -199,7 +221,16 @@ func (tx *Tx) Get(bucket, key []byte) {
 	})
 }
 
-// Set adds a new write query to the transaction.
+// SetX509Certificate adds a new write query to the transaction.
+func (tx *Tx) SetX509Certificate(bucket, key, value []byte, notBefore time.Time, notAfter time.Time, province []string, locality []string, country []string, organization []string, organizationalUnit []string, commonName string, issuer string) {
+	tx.Operations = append(tx.Operations, &TxEntry{
+		Bucket: bucket,
+		Key:    key,
+		Value:  value,
+		Cmd:    Set,
+	})
+}
+
 func (tx *Tx) Set(bucket, key, value []byte) {
 	tx.Operations = append(tx.Operations, &TxEntry{
 		Bucket: bucket,

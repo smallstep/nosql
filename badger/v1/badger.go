@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"strings"
+	"time"
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
@@ -58,6 +59,18 @@ func (db *DB) Close() error {
 // CreateTable creates a token element with the 'bucket' prefix so that such
 // that their appears to be a table.
 func (db *DB) CreateTable(bucket []byte) error {
+	bk, err := badgerEncode(bucket)
+	if err != nil {
+		return err
+	}
+	return db.db.Update(func(txn *badger.Txn) error {
+		return errors.Wrapf(txn.Set(bk, []byte{}), "failed to create %s/", bucket)
+	})
+}
+
+// CreateX509CertificateTable creates a token element with the 'bucket' prefix so that such
+// that their appears to be a table.
+func (db *DB) CreateX509CertificateTable(bucket []byte) error {
 	bk, err := badgerEncode(bucket)
 	if err != nil {
 		return err
@@ -157,6 +170,17 @@ func (db *DB) Get(bucket, key []byte) (ret []byte, err error) {
 
 // Set stores the given value on bucket and key.
 func (db *DB) Set(bucket, key, value []byte) error {
+	bk, err := toBadgerKey(bucket, key)
+	if err != nil {
+		return errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
+	}
+	return db.db.Update(func(txn *badger.Txn) error {
+		return errors.Wrapf(txn.Set(bk, value), "failed to set %s/%s", bucket, key)
+	})
+}
+
+// Set stores the given value on bucket and key.
+func (db *DB) SetX509Certificate(bucket, key, value []byte, notBefore time.Time, notAfter time.Time, province []string, locality []string, country []string, organization []string, organizationalUnit []string, commonName string, issuer string) error {
 	bk, err := toBadgerKey(bucket, key)
 	if err != nil {
 		return errors.Wrapf(err, "error converting %s/%s to badgerKey", bucket, key)
