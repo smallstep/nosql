@@ -299,7 +299,7 @@ func (db *DB) CreateX509CertificateTable(bucket []byte) error {
 				return errors.Wrapf(err, "failed to create table %s", bucket)
 
 			}
-		} else { //Some other error occured.
+		} else { //Some other error occurred.
 			return errors.Wrapf(colErr, "failed to get length of columns %s", bucket)
 		}
 
