@@ -287,10 +287,10 @@ func TestMain(m *testing.M) {
 
 func TestMySQL(t *testing.T) {
 	var (
-		uname = "travis"
-		pwd   = ""
+		uname = "user"
+		pwd   = "password"
 		proto = "tcp"
-		addr  = "127.0.0.1:3306"
+		addr  = "127.0.0.1:13306"
 		//path   = "/tmp/mysql.sock"
 		testDB = "test"
 	)
@@ -302,7 +302,6 @@ func TestMySQL(t *testing.T) {
 	}
 
 	db, err := New("mysql",
-		//fmt.Sprintf("%s:%s@%s(%s)/", uname, pwd, proto, addr),
 		fmt.Sprintf("%s:%s@%s(%s)/", uname, pwd, proto, addr),
 		WithDatabase(testDB))
 	assert.FatalError(t, err)
