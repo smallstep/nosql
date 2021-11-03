@@ -290,7 +290,7 @@ func TestMySQL(t *testing.T) {
 		uname = "user"
 		pwd   = "password"
 		proto = "tcp"
-		addr  = "127.0.0.1:13306"
+		addr  = "127.0.0.1:3306"
 		//path   = "/tmp/mysql.sock"
 		testDB = "test"
 	)
