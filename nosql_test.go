@@ -310,6 +310,30 @@ func TestMySQL(t *testing.T) {
 	run(t, db)
 }
 
+func TestPostgreSQL(t *testing.T) {
+	var (
+		uname = "user"
+		pwd   = "password"
+		addr  = "127.0.0.1:5432"
+		//path   = "/tmp/postgresql.sock"
+		testDB = "test"
+	)
+
+	isTravisTest := os.Getenv("TRAVIS")
+	if len(isTravisTest) == 0 {
+		fmt.Printf("Not running PostgreSQL integration tests\n")
+		return
+	}
+
+	db, err := New("postgresql",
+		fmt.Sprintf("postgresql://%s:%s@%s/", uname, pwd, addr),
+		WithDatabase(testDB))
+	assert.FatalError(t, err)
+	defer db.Close()
+
+	run(t, db)
+}
+
 func TestBadger(t *testing.T) {
 	path := "./tmp/badgerdb"
 
