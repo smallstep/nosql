@@ -24,13 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # Docker Hub image
         image: postgres
-        # Provide the password for postgres
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
-        # Set health checks to wait until postgres has started
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -66,13 +65,12 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # Docker Hub image
         image: postgres
-        # Provide the password for postgres
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
-        # Set health checks to wait until postgres has started
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
