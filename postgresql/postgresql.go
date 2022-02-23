@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	pgxstdlib "github.com/jackc/pgx/v4/stdlib"
 	"github.com/jackc/pgx/v4"
+	pgxstdlib "github.com/jackc/pgx/v4/stdlib"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
@@ -70,7 +70,7 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 		return errors.Wrap(err, "error parsing PostgreSQL DSN")
 	}
 	// An explicit database name overrides one parsed from the DSN.
-	if (opts.Database != "") {
+	if opts.Database != "" {
 		config.Database = opts.Database
 	}
 
