@@ -117,7 +117,7 @@ func insertUpdateQry(bucket []byte) string {
 }
 
 func delQry(bucket []byte) string {
-	return fmt.Sprintf("DELETE FROM %s WHERE nkey = $1;", quoteIdentifier(string(bucket)))
+	return fmt.Sprintf("DELETE FROM %s WHERE nkey = 'foo';", quoteIdentifier(string(bucket)))
 }
 
 func createTableQry(bucket []byte) string {

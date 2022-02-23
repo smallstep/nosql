@@ -295,8 +295,8 @@ func TestMySQL(t *testing.T) {
 		testDB = "test"
 	)
 
-	isTravisTest := os.Getenv("TRAVIS")
-	if len(isTravisTest) == 0 {
+	isCITest := os.Getenv("CI")
+	if len(isCITest) == 0 {
 		fmt.Printf("Not running MySql integration tests\n")
 		return
 	}
@@ -319,8 +319,8 @@ func TestPostgreSQL(t *testing.T) {
 		testDB = "test"
 	)
 
-	isTravisTest := os.Getenv("TRAVIS")
-	if len(isTravisTest) == 0 {
+	isCITest := os.Getenv("CI")
+	if len(isCITest) == 0 {
 		fmt.Printf("Not running PostgreSQL integration tests\n")
 		return
 	}
