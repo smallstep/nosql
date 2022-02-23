@@ -9,6 +9,7 @@ import (
 	"github.com/smallstep/nosql/bolt"
 	"github.com/smallstep/nosql/database"
 	"github.com/smallstep/nosql/mysql"
+	"github.com/smallstep/nosql/postgresql"
 )
 
 // Option is just a wrapper over database.Option.
@@ -41,6 +42,8 @@ var (
 	BBoltDriver = "bbolt"
 	// MySQLDriver indicates the default MySQL database.
 	MySQLDriver = "mysql"
+	// PostgreSQLDriver indicates the default PostgreSQL database.
+	PostgreSQLDriver = "postgresql"
 
 	// Badger FileLoadingMode
 
@@ -61,6 +64,8 @@ func New(driver, dataSourceName string, opt ...Option) (db database.DB, err erro
 		db = &bolt.DB{}
 	case MySQLDriver:
 		db = &mysql.DB{}
+	case PostgreSQLDriver:
+		db = &postgresql.DB{}
 	default:
 		return nil, errors.Errorf("%s database not supported", driver)
 	}

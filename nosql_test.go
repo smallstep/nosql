@@ -295,14 +295,38 @@ func TestMySQL(t *testing.T) {
 		testDB = "test"
 	)
 
-	isTravisTest := os.Getenv("TRAVIS")
-	if len(isTravisTest) == 0 {
+	isCITest := os.Getenv("CI")
+	if len(isCITest) == 0 {
 		fmt.Printf("Not running MySql integration tests\n")
 		return
 	}
 
 	db, err := New("mysql",
 		fmt.Sprintf("%s:%s@%s(%s)/", uname, pwd, proto, addr),
+		WithDatabase(testDB))
+	assert.FatalError(t, err)
+	defer db.Close()
+
+	run(t, db)
+}
+
+func TestPostgreSQL(t *testing.T) {
+	var (
+		uname = "user"
+		pwd   = "password"
+		addr  = "127.0.0.1:5432"
+		//path   = "/tmp/postgresql.sock"
+		testDB = "test"
+	)
+
+	isCITest := os.Getenv("CI")
+	if len(isCITest) == 0 {
+		fmt.Printf("Not running PostgreSQL integration tests\n")
+		return
+	}
+
+	db, err := New("postgresql",
+		fmt.Sprintf("postgresql://%s:%s@%s/", uname, pwd, addr),
 		WithDatabase(testDB))
 	assert.FatalError(t, err)
 	defer db.Close()
