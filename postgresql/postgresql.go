@@ -1,3 +1,6 @@
+//go:build !nopgx
+// +build !nopgx
+
 package postgresql
 
 import (
