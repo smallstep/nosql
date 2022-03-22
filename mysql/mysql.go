@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	// import mysql driver anonymously (just run the init)
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 )
@@ -30,16 +30,27 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 		}
 	}
 
-	var err error
-	_db, err := sql.Open("mysql", dataSourceName)
+	parsedDSN, err := mysql.ParseDSN(dataSourceName)
+	if err != nil {
+		return errors.Wrap(err, "parse database from dataSource")
+	}
+	// Database name in DSN is ignored if explicitly set
+	if opts.Database == "" {
+		opts.Database = parsedDSN.DBName
+	}
+
+	// First connect to no db to create it if it doesn't exist
+	parsedDSN.DBName = ""
+	_db, err := sql.Open("mysql", parsedDSN.FormatDSN())
 	if err != nil {
 		return errors.Wrap(err, "error connecting to mysql")
 	}
-	_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", opts.Database))
+	_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", opts.Database))
 	if err != nil {
 		return errors.Wrapf(err, "error creating database %s (if not exists)", opts.Database)
 	}
-	db.db, err = sql.Open("mysql", dataSourceName+opts.Database)
+	parsedDSN.DBName = opts.Database
+	db.db, err = sql.Open("mysql", parsedDSN.FormatDSN())
 	if err != nil {
 		return errors.Wrapf(err, "error connecting to mysql database")
 	}
