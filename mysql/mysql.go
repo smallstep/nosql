@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	// import mysql driver anonymously (just run the init)
 	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
