@@ -58,6 +58,11 @@ func createDatabase(config *pgx.ConnConfig) error {
 	return nil
 }
 
+// Ping checks if the database is alive.
+func (db *DB) Ping() error {
+	return db.db.Ping()
+}
+
 // Open creates a Driver and connects to the database with the given address
 // and access details.
 func (db *DB) Open(dataSourceName string, opt ...database.Option) error {

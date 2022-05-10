@@ -110,6 +110,8 @@ type DB interface {
 	CreateTable(bucket []byte) error
 	// DeleteTable deletes a table or a bucket in the database.
 	DeleteTable(bucket []byte) error
+	// Ping checks if the database is still alive.
+	Ping() error
 }
 
 // Badger FileLoadingMode constants.

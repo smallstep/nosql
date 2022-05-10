@@ -57,6 +57,11 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 	return nil
 }
 
+// Ping checks if the database is alive.
+func (db *DB) Ping() error {
+	return db.db.Ping()
+}
+
 // Close shutsdown the database driver.
 func (db *DB) Close() error {
 	return errors.WithStack(db.db.Close())

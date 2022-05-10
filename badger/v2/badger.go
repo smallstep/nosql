@@ -48,6 +48,11 @@ func (db *DB) Open(dir string, opt ...database.Option) (err error) {
 	return errors.Wrap(err, "error opening Badger database")
 }
 
+// Ping checks if the database is alive.
+func (db *DB) Ping() error {
+	return nil
+}
+
 // Close closes the DB database.
 func (db *DB) Close() error {
 	return errors.Wrap(db.db.Close(), "error closing Badger database")
