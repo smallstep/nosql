@@ -27,12 +27,12 @@ func quoteIdentifier(identifier string) string {
 }
 
 func createDatabase(config *pgx.ConnConfig) error {
-	database := config.Database
-	if database == "" {
+	db := config.Database
+	if db == "" {
 		// If no explicit database name is given, PostgreSQL defaults to the
 		// database with the same name as the user.
-		database = config.User
-		if database == "" {
+		db = config.User
+		if db == "" {
 			return errors.New("error creating database: database name is missing")
 		}
 	}
@@ -48,10 +48,10 @@ func createDatabase(config *pgx.ConnConfig) error {
 	}
 	defer conn.Close(context.Background())
 
-	_, err = conn.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE %s", quoteIdentifier(database)))
+	_, err = conn.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE %s", quoteIdentifier(db)))
 	if err != nil {
 		if !strings.Contains(err.Error(), "(SQLSTATE 42P04)") {
-			return errors.Wrapf(err, "error creating database %s (if not exists)", database)
+			return errors.Wrapf(err, "error creating database %s (if not exists)", db)
 		}
 	}
 
@@ -84,7 +84,7 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 		// The database does not exist. Create it.
 		err = createDatabase(config)
 		if err != nil {
-			return nil
+			return err
 		}
 
 		// Attempt to open the database again.
@@ -225,7 +225,7 @@ func cmpAndSwap(sqlTx *sql.Tx, bucket, key, oldValue, newValue []byte) ([]byte, 
 	var current []byte
 	err := sqlTx.QueryRow(getQryForUpdate(bucket), key).Scan(&current)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, false, err
 	}
 	if !bytes.Equal(current, oldValue) {

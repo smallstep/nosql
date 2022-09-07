@@ -296,7 +296,7 @@ func TestMySQL(t *testing.T) {
 	)
 
 	isCITest := os.Getenv("CI")
-	if len(isCITest) == 0 {
+	if isCITest == "" {
 		fmt.Printf("Not running MySql integration tests\n")
 		return
 	}
@@ -320,7 +320,7 @@ func TestPostgreSQL(t *testing.T) {
 	)
 
 	isCITest := os.Getenv("CI")
-	if len(isCITest) == 0 {
+	if isCITest == "" {
 		fmt.Printf("Not running PostgreSQL integration tests\n")
 		return
 	}

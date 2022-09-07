@@ -180,7 +180,7 @@ func cmpAndSwap(sqlTx *sql.Tx, bucket, key, oldValue, newValue []byte) ([]byte, 
 	var current []byte
 	err := sqlTx.QueryRow(getQryForUpdate(bucket), key).Scan(&current)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, false, err
 	}
 	if !bytes.Equal(current, oldValue) {

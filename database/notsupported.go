@@ -21,7 +21,6 @@ func (*NotSupportedDB) Set(bucket, key, value []byte) error {
 }
 
 func (*NotSupportedDB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
-
 	return nil, false, ErrOpNotSupported
 }
 
