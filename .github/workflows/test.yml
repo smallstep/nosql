@@ -6,10 +6,6 @@ jobs:
   lint:
     uses: smallstep/workflows/.github/workflows/goLint.yml@main
 
-  govulncheck:
-    needs: lint
-    uses: smallstep/workflows/.github/workflows/govulncheck.yml@main
-
   test:
     needs: govulncheck
     runs-on: ubuntu-latest
