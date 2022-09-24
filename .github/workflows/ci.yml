@@ -23,7 +23,6 @@ jobs:
       GITLEAKS_LICENSE_KEY: ${{ secrets.GITLEAKS_LICENSE_KEY }}
 
   test:
-    needs: lint
     runs-on: ubuntu-latest
     services:
       postgres:
