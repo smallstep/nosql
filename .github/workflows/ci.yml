@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    tags-ignore:
+    - 'v*'
+    branches:
+    - "master"
+  pull_request:
+  workflow_call:
+    secrets:
+      GITLEAKS_LICENSE_KEY:
+        required: true
+
+jobs:
+  ci:
+    uses: smallstep/workflows/.github/workflows/goCI.yml@main
+    with:
+      run-gitleaks: true
+      run-codeql: true
+      run-test: false
+    secrets:
+      GITLEAKS_LICENSE_KEY: ${{ secrets.GITLEAKS_LICENSE_KEY }}
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_USER: user
+          MYSQL_PASSWORD: password
+          MYSQL_DATABASE: test
+          MYSQL_ROOT_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    strategy:
+      matrix:
+        go: [ '1.18', '1.19' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Test
+        run: V=1 make ci-test
