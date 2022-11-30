@@ -4,7 +4,6 @@
 package mysql
 
 import (
-	"bytes"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -149,49 +148,38 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 }
 
 // CmpAndSwap modifies the value at the given bucket and key (to newValue)
-// only if the existing (current) value matches oldValue.
+// only if the existing (current) value matches oldValue. Otherwise it inserts.
+// returns: newvalue, swapped?, err
 func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
-	sqlTx, err := db.db.Begin()
+	result, err := db.db.Exec(insertUpdateQry(bucket), key, newValue, newValue)
 	if err != nil {
-		return nil, false, errors.WithStack(err)
-	}
-
-	val, swapped, err := cmpAndSwap(sqlTx, bucket, key, oldValue, newValue)
-	switch {
-	case err != nil:
-		if err := sqlTx.Rollback(); err != nil {
-			return nil, false, errors.Wrapf(err, "failed to execute CmpAndSwap transaction on %s/%s and failed to rollback transaction", bucket, key)
-		}
-		return nil, false, err
-	case swapped:
-		if err := sqlTx.Commit(); err != nil {
-			return nil, false, errors.Wrapf(err, "failed to commit MySQL transaction")
-		}
-		return val, swapped, nil
-	default:
-		if err := sqlTx.Rollback(); err != nil {
-			return nil, false, errors.Wrapf(err, "failed to rollback read-only CmpAndSwap transaction on %s/%s", bucket, key)
-		}
-		return val, swapped, err
-	}
-}
-
-func cmpAndSwap(sqlTx *sql.Tx, bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
-	var current []byte
-	err := sqlTx.QueryRow(getQryForUpdate(bucket), key).Scan(&current)
-
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
-	}
-	if !bytes.Equal(current, oldValue) {
-		return current, false, nil
-	}
-
-	if _, err = sqlTx.Exec(insertUpdateQry(bucket), key, newValue, newValue); err != nil {
 		return nil, false, errors.Wrapf(err, "failed to set %s/%s", bucket, key)
+	}
+	rowsAffected, err := result.RowsAffected();
+	if err != nil {
+		return nil, false, errors.Wrapf(err, "failed to retrieve rows affected")
+	}
+	if rowsAffected == 0 {
+		return newValue, false, nil
 	}
 	return newValue, true, nil
 }
+
+func cmpAndSwap(sqlTx *sql.Tx, bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+	result, err := sqlTx.Exec(insertUpdateQry(bucket), key, newValue, newValue)
+	if err != nil {
+		return nil, false, errors.Wrapf(err, "failed to set %s/%s", bucket, key)
+	}
+	rowsAffected, err := result.RowsAffected();
+	if err != nil {
+		return nil, false, errors.Wrapf(err, "failed to retrieve rows affected")
+	}
+	if rowsAffected == 0 {
+		return newValue, false, nil
+	}
+	return newValue, true, nil
+}
+
 
 // Update performs multiple commands on one read-write transaction.
 func (db *DB) Update(tx *database.Tx) error {
