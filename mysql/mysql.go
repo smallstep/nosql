@@ -65,10 +65,6 @@ func getQry(bucket []byte) string {
 	return fmt.Sprintf("SELECT nvalue FROM `%s` WHERE nkey = ?", bucket)
 }
 
-func getQryForUpdate(bucket []byte) string {
-	return fmt.Sprintf("SELECT nvalue FROM `%s` WHERE nkey = ? FOR UPDATE", bucket)
-}
-
 func insertUpdateQry(bucket []byte) string {
 	return fmt.Sprintf("INSERT INTO `%s`(nkey, nvalue) VALUES(?,?) ON DUPLICATE KEY UPDATE nvalue = ?", bucket)
 }
@@ -151,11 +147,19 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 // only if the existing (current) value matches oldValue. Otherwise it inserts.
 // returns: newvalue, swapped?, err
 func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
-	result, err := db.db.Exec(insertUpdateQry(bucket), key, newValue, newValue)
+	return cmpAndSwap(db.db, bucket, key, oldValue, newValue)
+}
+
+type execi interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func cmpAndSwap(executor execi, bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+	result, err := executor.Exec(insertUpdateQry(bucket), key, newValue, newValue)
 	if err != nil {
 		return nil, false, errors.Wrapf(err, "failed to set %s/%s", bucket, key)
 	}
-	rowsAffected, err := result.RowsAffected();
+	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return nil, false, errors.Wrapf(err, "failed to retrieve rows affected")
 	}
@@ -164,22 +168,6 @@ func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, 
 	}
 	return newValue, true, nil
 }
-
-func cmpAndSwap(sqlTx *sql.Tx, bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
-	result, err := sqlTx.Exec(insertUpdateQry(bucket), key, newValue, newValue)
-	if err != nil {
-		return nil, false, errors.Wrapf(err, "failed to set %s/%s", bucket, key)
-	}
-	rowsAffected, err := result.RowsAffected();
-	if err != nil {
-		return nil, false, errors.Wrapf(err, "failed to retrieve rows affected")
-	}
-	if rowsAffected == 0 {
-		return newValue, false, nil
-	}
-	return newValue, true, nil
-}
-
 
 // Update performs multiple commands on one read-write transaction.
 func (db *DB) Update(tx *database.Tx) error {
