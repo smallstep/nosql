@@ -128,6 +128,11 @@ func (db *DB) DeleteTable(bucket []byte) error {
 	return err
 }
 
+// Compact triggers a value log garbage collection.
+func (db *DB) Compact(discardRatio float64) error {
+	return db.db.RunValueLogGC(discardRatio)
+}
+
 // badgerGet is a helper for the Get method.
 func badgerGet(txn *badger.Txn, key []byte) ([]byte, error) {
 	item, err := txn.Get(key)
