@@ -313,6 +313,11 @@ func (db *DB) Update(txn *database.Tx) error {
 	})
 }
 
+// Compact triggers a value log garbage collection.
+func (db *DB) Compact(discardRatio float64) error {
+	return db.db.RunValueLogGC(discardRatio)
+}
+
 // toBadgerKey returns the Badger database key using the following algorithm:
 // First 2 bytes are the length of the bucket/table name in little endian format,
 // followed by the bucket/table name,

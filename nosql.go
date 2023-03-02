@@ -18,6 +18,12 @@ type Option = database.Option
 // DB is just a wrapper over database.DB.
 type DB = database.DB
 
+// Compactor in an interface implemented by those databases that can run a value
+// log garbage collector like badger.
+type Compactor interface {
+	Compact(discardRatio float64) error
+}
+
 var (
 	// WithValueDir is a wrapper over database.WithValueDir.
 	WithValueDir = database.WithValueDir
