@@ -6,7 +6,7 @@ require (
 	github.com/dgraph-io/badger v1.6.2
 	github.com/dgraph-io/badger/v2 v2.2007.4
 	github.com/go-sql-driver/mysql v1.7.0
-	github.com/jackc/pgx/v4 v4.18.0
+	github.com/jackc/pgx/v4 v4.18.1
 	github.com/pkg/errors v0.9.1
 	github.com/smallstep/assert v0.0.0-20180720014142-de77670473b5
 	go.etcd.io/bbolt v1.3.7
