@@ -44,17 +44,18 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 	if err != nil {
 		return errors.Wrap(err, "error connecting to mysql")
 	}
-	_db_check, err = _db.Exec(fmt.Sprintf("SHOW DATABASES LIKE `%s`", opts.Database))
-	if err != nil {
-		return errors.Wrapf(err, "error checking if database %s exists", opts.Database)
+	_db_check, err := _db.Query(fmt.Sprintf("SHOW DATABASES LIKE `%s`", opts.Database)) 
+	if err != nil { 
+		return errors.Wrapf(err, "error checking if database %s exists", opts.Database) 
+	} 
+	// db doesn't exist, create it 
+	if !_db_check.Next() { 
+		_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", opts.Database)) 
+		if err != nil { 
+			return errors.Wrapf(err, "error creating database %s (if not exists)", opts.Database) 
+		} 
 	}
-	// db doesn't exist, create it
-	if len(_db_check.allAffectedRows()) == 0 {
-		_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", opts.Database))
-		if err != nil {
-			return errors.Wrapf(err, "error creating database %s (if not exists)", opts.Database)
-		}
-	}
+
 	parsedDSN.DBName = opts.Database
 	db.db, err = sql.Open("mysql", parsedDSN.FormatDSN())
 	if err != nil {
@@ -270,19 +271,20 @@ func (db *DB) Update(tx *database.Tx) error {
 	return nil
 }
 
-// CreateTable creates a table in the database.
-func (db *DB) CreateTable(bucket []byte) error {
-	_check, err := db.db.Exec(checkTableQry(bucket))
+// CreateTable creates a table in the database. 
+func (db *DB) CreateTable(bucket []byte) error { 
+	_check, err := db.db.Query(checkTableQry(bucket)) 
 	if err != nil {
-		return errors.Wrapf(err, "failed to check table %s", bucket)
-	}
-	if len(_check.allAffectedRows()) == 0 {	
-		_, err := db.db.Exec(createTableQry(bucket))
+		return errors.Wrapf(err, "failed to check table %s", bucket) 
+	} 
+	// table doesn't exist, create it
+	if !_check.Next() {
+		_, err := db.db.Exec(createTableQry(bucket)) 
 		if err != nil {
 			return errors.Wrapf(err, "failed to create table %s", bucket)
 		}
-	}
-	return nil
+	} 
+	return nil 
 }
 
 // DeleteTable deletes a table in the database.
