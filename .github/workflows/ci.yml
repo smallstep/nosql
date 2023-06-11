@@ -13,7 +13,6 @@ jobs:
   ci:
     uses: smallstep/workflows/.github/workflows/goCI.yml@main
     with:
-      run-gitleaks: true
       run-codeql: true
       run-test: false
     secrets: inherit
@@ -45,12 +44,12 @@ jobs:
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
     strategy:
       matrix:
-        go: [ '1.19', '1.20' ]
+        go: [ 'stable', 'oldstable' ]
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
