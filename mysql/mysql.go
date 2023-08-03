@@ -44,16 +44,20 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 	if err != nil {
 		return errors.Wrap(err, "error connecting to mysql")
 	}
-	_db_check, err := _db.Query(fmt.Sprintf("SHOW DATABASES LIKE `%s`", opts.Database)) 
-	if err != nil { 
-		return errors.Wrapf(err, "error checking if database %s exists", opts.Database) 
-	} 
-	// db doesn't exist, create it 
-	if !_db_check.Next() { 
-		_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", opts.Database)) 
-		if err != nil { 
-			return errors.Wrapf(err, "error creating database %s (if not exists)", opts.Database) 
-		} 
+	rows, err := _db.Query(fmt.Sprintf("SHOW DATABASES LIKE `%s`", opts.Database))
+	if err != nil {
+		return errors.Wrapf(err, "error checking if database %s exists", opts.Database)
+	}
+	defer rows.Close()
+	// db doesn't exist, create it
+	if !rows.Next() {
+		_, err = _db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", opts.Database))
+		if err != nil {
+			return errors.Wrapf(err, "error creating database %s (if not exists)", opts.Database)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("error accessing databases: %w", err)
 	}
 
 	parsedDSN.DBName = opts.Database
@@ -271,20 +275,24 @@ func (db *DB) Update(tx *database.Tx) error {
 	return nil
 }
 
-// CreateTable creates a table in the database. 
-func (db *DB) CreateTable(bucket []byte) error { 
-	_check, err := db.db.Query(checkTableQry(bucket)) 
+// CreateTable creates a table in the database.
+func (db *DB) CreateTable(bucket []byte) error {
+	rows, err := db.db.Query(checkTableQry(bucket))
 	if err != nil {
-		return errors.Wrapf(err, "failed to check table %s", bucket) 
-	} 
-	// table doesn't exist, create it
-	if !_check.Next() {
-		_, err := db.db.Exec(createTableQry(bucket)) 
+		return errors.Wrapf(err, "failed to check table %s", bucket)
+	}
+	defer rows.Close()
+	// Table doesn't exist, create it.
+	if !rows.Next() {
+		_, err := db.db.Exec(createTableQry(bucket))
 		if err != nil {
 			return errors.Wrapf(err, "failed to create table %s", bucket)
 		}
-	} 
-	return nil 
+	}
+	if err = rows.Err(); err != nil {
+		return errors.Wrap(err, "error accessing row")
+	}
+	return nil
 }
 
 // DeleteTable deletes a table in the database.
