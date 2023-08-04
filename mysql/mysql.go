@@ -44,7 +44,7 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 	if err != nil {
 		return errors.Wrap(err, "error connecting to mysql")
 	}
-	rows, err := _db.Query(fmt.Sprintf("SHOW DATABASES LIKE `%s`", opts.Database))
+	rows, err := _db.Query(fmt.Sprintf("SHOW DATABASES LIKE '%s'", opts.Database))
 	if err != nil {
 		return errors.Wrapf(err, "error checking if database %s exists", opts.Database)
 	}
@@ -95,7 +95,7 @@ func createTableQry(bucket []byte) string {
 }
 
 func checkTableQry(bucket []byte) string {
-	return fmt.Sprintf("SHOW TABLES LIKE `%s`;", bucket)
+	return fmt.Sprintf("SHOW TABLES LIKE '%s';", bucket)
 }
 
 func deleteTableQry(bucket []byte) string {
