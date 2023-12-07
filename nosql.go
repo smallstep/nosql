@@ -8,6 +8,7 @@ import (
 	badgerV2 "github.com/smallstep/nosql/badger/v2"
 	"github.com/smallstep/nosql/bolt"
 	"github.com/smallstep/nosql/database"
+	"github.com/smallstep/nosql/mongodb"
 	"github.com/smallstep/nosql/mysql"
 	"github.com/smallstep/nosql/postgresql"
 )
@@ -51,6 +52,9 @@ var (
 	// PostgreSQLDriver indicates the default PostgreSQL database.
 	PostgreSQLDriver = "postgresql"
 
+	// MongoDBDriver indicates the default Mongo database.
+	MongoDBDriver = "mongodb"
+
 	// Badger FileLoadingMode
 
 	// BadgerMemoryMap indicates the MemoryMap FileLoadingMode option.
@@ -72,6 +76,8 @@ func New(driver, dataSourceName string, opt ...Option) (db database.DB, err erro
 		db = &mysql.DB{}
 	case PostgreSQLDriver:
 		db = &postgresql.DB{}
+	case MongoDBDriver:
+		db = &mongodb.DB{}
 	default:
 		return nil, errors.Errorf("%s database not supported", driver)
 	}
