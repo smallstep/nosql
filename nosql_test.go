@@ -16,7 +16,7 @@ type testUser struct {
 }
 
 func run(t *testing.T, db database.DB) {
-	var boogers = []byte("boogers")
+	boogers := []byte("boogers")
 
 	ub := []byte("testNoSQLUsers")
 	assert.True(t, IsErrNotFound(db.DeleteTable(ub)))
@@ -269,7 +269,6 @@ func run(t *testing.T, db database.DB) {
 }
 
 func TestMain(m *testing.M) {
-
 	// setup
 	path := "./tmp"
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -291,7 +290,7 @@ func TestMySQL(t *testing.T) {
 		pwd   = "password"
 		proto = "tcp"
 		addr  = "127.0.0.1:3306"
-		//path   = "/tmp/mysql.sock"
+		// path   = "/tmp/mysql.sock"
 		testDB = "test"
 	)
 
@@ -310,12 +309,42 @@ func TestMySQL(t *testing.T) {
 	run(t, db)
 }
 
+func TestMongoDB(t *testing.T) {
+	var (
+		uname = "user"
+		pwd   = "password"
+		addr  = "localhost:27017"
+		// path   = "/tmp/mysql.sock"
+		replicaSet = "dbrs"
+		testDB     = "test"
+	)
+
+	isCITest := os.Getenv("CI")
+	if isCITest == "" {
+		fmt.Printf("Not running MongoDB integration tests\n")
+		return
+	}
+
+	db, err := New("mongodb",
+		fmt.Sprintf("mongodb://%s:%s@%s/?replicaSet=%s", uname, pwd, addr, replicaSet),
+		WithDatabase(testDB))
+	if err != nil {
+		t.Fatalf(fmt.Sprintf("Error: %s\n", err))
+		return
+	}
+	assert.FatalError(t, err)
+
+	defer db.Close()
+
+	run(t, db)
+}
+
 func TestPostgreSQL(t *testing.T) {
 	var (
 		uname = "user"
 		pwd   = "password"
 		addr  = "127.0.0.1:5432"
-		//path   = "/tmp/postgresql.sock"
+		// path   = "/tmp/postgresql.sock"
 		testDB = "test"
 	)
 

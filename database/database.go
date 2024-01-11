@@ -1,9 +1,8 @@
 package database
 
 import (
-	"fmt"
-
 	"errors"
+	"fmt"
 )
 
 var (
@@ -66,23 +65,28 @@ type DB interface {
 	Open(dataSourceName string, opt ...Option) error
 	// Close closes the current database.
 	Close() error
-	// Get returns the value stored in the given table/bucket and key.
+	// Get returns the value stored in the given table/bucket/collection and key.
 	Get(bucket, key []byte) (ret []byte, err error)
-	// Set sets the given value in the given table/bucket and key.
+	// Set sets the given value in the given table/bucket/collection and key.
 	Set(bucket, key, value []byte) error
-	// CmpAndSwap swaps the value at the given bucket and key if the current
-	// value is equivalent to the oldValue input. Returns 'true' if the
-	// swap was successful and 'false' otherwise.
+	// CmpAndSwap takess a bucket, key, oldValue and newValue as inputs:
+	// CmpAndSwap returns: error, wasSwapped, keyValue
+	// - if the bucket / key does not exist, it returns database.ErrNotFound
+	// - if the bucket / key exists but the keyValue is not equivalent to oldValue,
+	//   it returns wasSwapped = false, keyValue
+	// - if the bucket / key exists and the keyValue is equivalent to oldValue,
+	//  it returns wasSwapped = true, keyValue
+	// - if an error occurs, it returns error
 	CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error)
 	// Del deletes the data in the given table/bucket and key.
 	Del(bucket, key []byte) error
-	// List returns a list of all the entries in a given table/bucket.
+	// List returns a list of all the entries in a given table/bucket/collection.
 	List(bucket []byte) ([]*Entry, error)
 	// Update performs a transaction with multiple read-write commands.
 	Update(tx *Tx) error
-	// CreateTable creates a table or a bucket in the database.
+	// CreateTable creates a table, bucket or collection in the database.
 	CreateTable(bucket []byte) error
-	// DeleteTable deletes a table or a bucket in the database.
+	// DeleteTable deletes a table, bucket or collection in the database.
 	DeleteTable(bucket []byte) error
 }
 
