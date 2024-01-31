@@ -6,9 +6,9 @@ package mongo
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/smallstep/nosql/database"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,7 +21,7 @@ type DB struct {
 	db *mongo.Database
 }
 
-type Tuple struct {
+type tuple struct {
 	Key   []byte `bson:"key" json:"key"`
 	Value []byte `bson:"value" json:"value"`
 }
@@ -38,7 +38,7 @@ func (db *DB) Open(uri string, opt ...database.Option) error {
 
 	clientOptions := options.Client().ApplyURI(uri)
 	if rs := clientOptions.ReplicaSet; *rs == "" {
-		return errors.New("To enable transactions, please provide a replica set name")
+		return fmt.Errorf("to enable transactions, please provide a replica set name")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -46,12 +46,11 @@ func (db *DB) Open(uri string, opt ...database.Option) error {
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		return errors.Wrap(err, "error in configuration")
+		return fmt.Errorf("failed to configuration: %v, %w", clientOptions, err)
 	}
 
-	err = client.Ping(context.Background(), nil)
-	if err != nil {
-		return errors.Wrap(err, "error connecting to mongo")
+	if err = client.Ping(context.Background(), nil); err != nil {
+		return fmt.Errorf("failed connecting mongo to: %w", err)
 	}
 
 	dbOpts := options.Database()
@@ -62,67 +61,67 @@ func (db *DB) Open(uri string, opt ...database.Option) error {
 
 func (db *DB) Close() error {
 	if err := db.db.Client().Disconnect(context.Background()); err != nil {
-		return errors.WithStack(err)
+		return fmt.Errorf("failed disconnecting mongo to: %w", err)
 	}
 
 	return nil
 }
 
-func (db *DB) CreateTable(bucket []byte) error {
-	return db.createTable(bucket, context.Background())
+func (db *DB) CreateTable(collection []byte) error {
+	return db.createTable(context.Background(), collection)
 }
 
-func (db *DB) DeleteTable(bucket []byte) error {
-	return db.deleteTable(bucket, context.Background())
+func (db *DB) DeleteTable(collection []byte) error {
+	return db.deleteTable(context.Background(), collection)
 }
 
 // Get returns the value stored in the given bucked and key.
-func (db *DB) Get(bucket, key []byte) (ret []byte, err error) {
-	return db.get(bucket, key, context.Background())
+func (db *DB) Get(collection, key []byte) (ret []byte, err error) {
+	return db.get(context.Background(), collection, key)
 }
 
-// Set stores the given value on bucket and key.
-func (db *DB) Set(bucket, key, value []byte) error {
-	return db.set(bucket, key, value, context.Background())
+// Set stores the given value on collection and key.
+func (db *DB) Set(collection, key, value []byte) error {
+	return db.set(context.Background(), collection, key, value)
 }
 
-// Del deletes the value stored in the given bucket and key.
-func (db *DB) Del(bucket, key []byte) error {
-	return db.del(bucket, key, context.Background())
+// Del deletes the value stored in the given collection and key.
+func (db *DB) Del(collection, key []byte) error {
+	return db.del(context.Background(), collection, key)
 }
 
-func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
-	return db.list(bucket, context.Background())
+func (db *DB) List(collection []byte) ([]*database.Entry, error) {
+	return db.list(context.Background(), collection)
 }
 
-// CmpAndSwap modifies the value at the given bucket and key (to newValue)
+// CmpAndSwap modifies the value at the given collection and key (to newValue)
 // only if the existing (current) value matches oldValue.
-func (db *DB) CmpAndSwap(bucket, key, oldValue, newValue []byte) ([]byte, bool, error) {
+func (db *DB) CmpAndSwap(collection, key, oldValue, newValue []byte) ([]byte, bool, error) {
 	wc := writeconcern.Majority()
 	txnOptions := options.Transaction().SetWriteConcern(wc)
 
 	session, err := db.db.Client().StartSession()
 	if err != nil {
-		return oldValue, false, errors.Wrap(err, "error starting session")
+		return oldValue, false, fmt.Errorf("failed starting session to: %w", err)
 	}
 	defer session.EndSession(context.Background())
 
 	val, swapped := []byte{}, false
 	err = mongo.WithSession(context.Background(), session, func(ctx mongo.SessionContext) error {
 		if err = session.StartTransaction(txnOptions); err != nil {
-			return errors.Wrap(err, "error: pending transaction")
+			return fmt.Errorf("failed to pending transaction: %w", err)
 		}
 
-		val, swapped, err = db.cmpAndSwap(bucket, key, oldValue, newValue, ctx)
+		val, swapped, err = db.cmpAndSwap(ctx, collection, key, oldValue, newValue)
 		if err != nil {
-			if err = session.AbortTransaction(context.Background()); err != nil {
-				return errors.Wrapf(err, "failed to execute CmpAndSwap transaction on %s/%s and failed to rollback transaction", bucket, key)
+			if err = session.AbortTransaction(ctx); err != nil {
+				return fmt.Errorf("failed to execute CmpAndSwap transaction on %s/%s and failed to rollback transaction: %w", collection, key, err)
 			}
-			return errors.Wrap(err, "error aborting transaction")
+			return fmt.Errorf("failed aborting transaction to: %w", err)
 		}
 
-		if err = session.CommitTransaction(context.Background()); err != nil {
-			return errors.Wrap(err, "error committing transaction")
+		if err = session.CommitTransaction(ctx); err != nil {
+			return fmt.Errorf("failed committing transaction to: %w", err)
 		}
 		return nil
 	})
@@ -137,22 +136,22 @@ func (db *DB) Update(tx *database.Tx) error {
 
 	session, err := db.db.Client().StartSession()
 	if err != nil {
-		return errors.Wrap(err, "error starting session")
+		return fmt.Errorf("failed starting session to: %w", err)
 	}
 	defer session.EndSession(context.Background())
 
-	err = mongo.WithSession(context.TODO(), session, func(ctx mongo.SessionContext) error {
+	err = mongo.WithSession(context.Background(), session, func(ctx mongo.SessionContext) error {
 		if err = session.StartTransaction(txnOptions); err != nil {
-			return errors.Wrap(err, "error: pending transaction")
+			return fmt.Errorf("failed to pending transaction: %w", err)
 		}
 
-		err = db.executeTransactions(tx, ctx, session)
+		err = db.executeTransactions(ctx, tx, session)
 		if err != nil {
 			return err
 		}
 
-		if err = errors.WithStack(session.CommitTransaction(context.Background())); err != nil {
-			return errors.Wrap(err, "error committing transaction")
+		if err = session.CommitTransaction(ctx); err != nil {
+			return fmt.Errorf("failed committing transaction to: %w", err)
 		}
 		return nil
 	})
@@ -164,10 +163,10 @@ func (db *DB) Update(tx *database.Tx) error {
 	return nil
 }
 
-// CreateTable creates a bucket or an embedded bucket if it does not exists.
-func (db *DB) createTable(bucket []byte, ctx context.Context) error {
-	if err := db.db.CreateCollection(ctx, string(bucket)); err != nil {
-		return errors.Wrap(err, "error creating collection")
+// CreateTable creates a collection or an embedded collection if it does not exists.
+func (db *DB) createTable(ctx context.Context, collection []byte) error {
+	if err := db.db.CreateCollection(ctx, string(collection)); err != nil {
+		return fmt.Errorf("failed creating collection %s to: %w", collection, err)
 	}
 
 	// create an index on the Key field
@@ -176,111 +175,115 @@ func (db *DB) createTable(bucket []byte, ctx context.Context) error {
 		Options: options.Index().SetUnique(true),
 	}
 
-	_, err := db.db.Collection(string(bucket)).Indexes().CreateOne(context.TODO(), index)
+	_, err := db.db.Collection(string(collection)).Indexes().CreateOne(ctx, index)
 	if err != nil {
-		return errors.Wrap(err, "error creating collection")
+		return fmt.Errorf("failed creating collection %s to: %w", collection, err)
 	}
 
 	return nil
 }
 
-// DeleteTable deletes a root or embedded bucket. Returns an error if the
-// bucket cannot be found or if the key represents a non-bucket value.
-func (db *DB) deleteTable(bucket []byte, ctx context.Context) error {
-	if !collectionExists(db.db, string(bucket)) {
-		return errors.Wrapf(database.ErrNotFound, "bucket %s not found", bucket)
+// DeleteTable deletes a root or embedded collection. Returns an error if the
+// collection cannot be found or if the key represents a non-collection value.
+func (db *DB) deleteTable(ctx context.Context, collection []byte) error {
+	if !collectionExists(ctx, db.db, string(collection)) {
+		return fmt.Errorf("failed deleting collection %s to: %w ", collection, database.ErrNotFound)
 	}
 
-	if err := db.db.Collection(string(bucket)).Drop(ctx); err != nil {
-		return errors.Wrapf(err, "error dropping collection: %s", bucket)
+	if err := db.db.Collection(string(collection)).Drop(ctx); err != nil {
+		return fmt.Errorf("failed dropping collection %s to: %w", collection, err)
 	}
 	return nil
 }
 
-func (db *DB) get(bucket, key []byte, ctx context.Context) (ret []byte, err error) {
+func (db *DB) get(ctx context.Context, collection, key []byte) (ret []byte, err error) {
 	filter := createFilter("key", key)
-	res := db.db.Collection(string(bucket)).FindOne(ctx, filter)
+	res := db.db.Collection(string(collection)).FindOne(ctx, filter)
 
 	if err := res.Err(); err != nil {
-		return nil, errors.Wrapf(database.ErrNotFound, "%s/%s", bucket, key)
+		return nil, fmt.Errorf("failed finding %s/%s to: %w", collection, key, database.ErrNotFound)
 	}
 
-	result := Tuple{}
+	result := tuple{}
 	if err := res.Decode(&result); err != nil {
-		return nil, errors.Wrap(err, "error decoding value")
+		return nil, fmt.Errorf("failed decoding value for %s/%s to: %w", collection, key, err)
 	}
 
-	return []byte(result.Value), nil
+	return result.Value, nil
 }
 
-func (db *DB) set(bucket, key, value []byte, ctx context.Context) error {
+func (db *DB) set(ctx context.Context, collection, key, value []byte) error {
 	filter := createFilter("key", key)
 	update := createUpdate(value)
 	opts := options.Update().SetUpsert(true)
 
-	_, err := db.db.Collection(string(bucket)).UpdateOne(ctx, filter, update, opts)
+	_, err := db.db.Collection(string(collection)).UpdateOne(ctx, filter, update, opts)
 	if err != nil {
-		return errors.Wrapf(err, "error setting value %s/%s", bucket, key)
+		return fmt.Errorf("failed setting value %s/%s to: %w", collection, key, err)
 	}
 	return nil
 }
 
-// List returns the full list of entries in a bucket.
-func (db *DB) list(bucket []byte, ctx context.Context) ([]*database.Entry, error) {
-	if !collectionExists(db.db, string(bucket)) {
-		return nil, errors.Wrapf(database.ErrNotFound, "bucket %s not found", bucket)
+// List returns the full list of entries in a collection.
+func (db *DB) list(ctx context.Context, collection []byte) ([]*database.Entry, error) {
+	if !collectionExists(ctx, db.db, string(collection)) {
+		return nil, fmt.Errorf("failed finding collection %s: %w", collection, database.ErrNotFound)
 	}
 
 	// match all
 	filter := bson.D{{}}
 
-	cursor, err := db.db.Collection(string(bucket)).Find(ctx, filter)
+	cursor, err := db.db.Collection(string(collection)).Find(ctx, filter)
 	if err != nil {
-		return nil, errors.Wrap(err, "error listing values")
+		return nil, fmt.Errorf("failed listing values of collection %s to: %w", collection, err)
 	}
-	defer cursor.Close(context.Background())
+	defer cursor.Close(ctx)
 
 	if err = cursor.Err(); err != nil {
-		return nil, errors.Wrap(err, "error listing values")
+		return nil, fmt.Errorf("failed listing values of %s to: %w", collection, err)
 	}
 
 	var entries []*database.Entry
 
-	for cursor.Next(context.Background()) {
-		tuple := Tuple{}
-		cursor.Decode(&tuple)
+	for cursor.Next(ctx) {
+		t := tuple{}
+
+		if err := cursor.Decode(&t); err != nil {
+			return nil, fmt.Errorf("failed decoding value to: %w", err)
+		}
+
 		entries = append(entries, &database.Entry{
-			Bucket: bucket,
-			Key:    []byte(tuple.Key),
-			Value:  []byte(tuple.Value),
+			Bucket: collection,
+			Key:    t.Key,
+			Value:  t.Value,
 		})
 	}
 
 	if err = cursor.Err(); err != nil {
-		return nil, errors.Wrap(err, "error listing values")
+		return nil, fmt.Errorf("failed listing values of collection %s to: %w", collection, err)
 	}
 
 	return entries, nil
 }
 
-// Del deletes the value stored in the given bucket and key.
-func (db *DB) del(bucket, key []byte, ctx context.Context) error {
+// Del deletes the value stored in the given collection and key.
+func (db *DB) del(ctx context.Context, collection, key []byte) error {
 	filter := createFilter("key", key)
 
-	mongoRes, err := db.db.Collection(string(bucket)).DeleteOne(ctx, filter)
+	mongoRes, err := db.db.Collection(string(collection)).DeleteOne(ctx, filter)
 	if err != nil {
-		return errors.Wrapf(err, "failed to delete %s/%s", bucket, key)
+		return fmt.Errorf("failed deleting %s/%s to: %w", collection, key, err)
 	}
 
 	if mongoRes.DeletedCount == 0 {
-		return errors.Wrapf(err, "failed to delete: %s/%s. Value not found", bucket, key)
+		return fmt.Errorf("failed to delete: %s/%s to: %w", collection, key, database.ErrNotFound)
 	}
 
 	return nil
 }
 
-func (db *DB) cmpAndSwap(bucket, key, target, newValue []byte, ctx context.Context) ([]byte, bool, error) {
-	v, err := db.get(bucket, key, ctx)
+func (db *DB) cmpAndSwap(ctx context.Context, collection, key, target, newValue []byte) ([]byte, bool, error) {
+	v, err := db.get(ctx, collection, key)
 	if err != nil && !database.IsErrNotFound(err) {
 		return nil, false, err
 	}
@@ -289,7 +292,7 @@ func (db *DB) cmpAndSwap(bucket, key, target, newValue []byte, ctx context.Conte
 		return v, false, nil
 	}
 
-	err = db.set(bucket, key, newValue, ctx)
+	err = db.set(ctx, collection, key, newValue)
 	if err != nil {
 		return nil, false, err
 	}
@@ -297,48 +300,48 @@ func (db *DB) cmpAndSwap(bucket, key, target, newValue []byte, ctx context.Conte
 	return newValue, true, nil
 }
 
-func (db *DB) executeTransactions(tx *database.Tx, ctx mongo.SessionContext, session mongo.Session) error {
+func (db *DB) executeTransactions(ctx mongo.SessionContext, tx *database.Tx, session mongo.Session) error {
 	for _, op := range tx.Operations {
 		var err error
 		switch op.Cmd {
 		case database.CreateTable:
 			if err := db.CreateTable(op.Bucket); err != nil {
-				return abort(session, err)
+				return abort(ctx, session, err)
 			}
 		case database.DeleteTable:
 			if err := db.DeleteTable(op.Bucket); err != nil {
-				return abort(session, err)
+				return abort(ctx, session, err)
 			}
 		case database.Get:
-			if op.Result, err = db.get(op.Bucket, op.Key, ctx); err != nil {
-				return abort(session, err)
+			if op.Result, err = db.get(ctx, op.Bucket, op.Key); err != nil {
+				return abort(ctx, session, err)
 			}
 		case database.Set:
-			if err := db.set(op.Bucket, op.Key, op.Value, ctx); err != nil {
-				return abort(session, err)
+			if err := db.set(ctx, op.Bucket, op.Key, op.Value); err != nil {
+				return abort(ctx, session, err)
 			}
 		case database.Delete:
-			if err := db.del(op.Bucket, op.Key, ctx); err != nil {
-				return abort(session, err)
+			if err := db.del(ctx, op.Bucket, op.Key); err != nil {
+				return abort(ctx, session, err)
 			}
 		case database.CmpAndSwap:
-			op.Result, op.Swapped, err = db.cmpAndSwap(op.Bucket, op.Key, op.CmpValue, op.Value, ctx)
+			op.Result, op.Swapped, err = db.cmpAndSwap(ctx, op.Bucket, op.Key, op.CmpValue, op.Value)
 			if err != nil {
-				return abort(session, err)
+				return abort(ctx, session, err)
 			}
 		case database.CmpOrRollback:
-			return abort(session, database.ErrOpNotSupported)
+			return abort(ctx, session, database.ErrOpNotSupported)
 		default:
-			return abort(session, database.ErrOpNotSupported)
+			return abort(ctx, session, database.ErrOpNotSupported)
 		}
 	}
 
 	return nil
 }
 
-func collectionExists(db *mongo.Database, name string) bool {
+func collectionExists(ctx context.Context, db *mongo.Database, name string) bool {
 	filter := createFilter("name", name)
-	list, err := db.ListCollectionNames(context.Background(), filter)
+	list, err := db.ListCollectionNames(ctx, filter)
 	if err != nil {
 		return false
 	}
@@ -353,10 +356,10 @@ func createUpdate(value []byte) bson.D {
 	return bson.D{{Key: "$set", Value: bson.D{{Key: "value", Value: value}}}}
 }
 
-func abort(session mongo.Session, err error) error {
-	abortError := session.AbortTransaction(context.Background())
+func abort(ctx context.Context, session mongo.Session, err error) error {
+	abortError := session.AbortTransaction(ctx)
 	if abortError != nil {
-		return errors.Wrap(err, "error aborting transaction")
+		return fmt.Errorf("failed aborting transaction to: %w", err)
 	}
-	return errors.Wrap(err, "UPDATE failed")
+	return fmt.Errorf("failed update to: %w", err)
 }

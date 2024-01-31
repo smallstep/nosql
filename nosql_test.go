@@ -321,19 +321,13 @@ func TestMongoDB(t *testing.T) {
 
 	isCITest := os.Getenv("CI")
 	if isCITest == "" {
-		fmt.Printf("Not running MongoDB integration tests\n")
-		return
+		t.Skip("not running MongoDB integration tests\n")
 	}
 
 	db, err := New("mongodb",
 		fmt.Sprintf("mongodb://%s:%s@%s/?replicaSet=%s", uname, pwd, addr, replicaSet),
 		WithDatabase(testDB))
-	if err != nil {
-		t.Fatalf(fmt.Sprintf("Error: %s\n", err))
-		return
-	}
 	assert.FatalError(t, err)
-
 	defer db.Close()
 
 	run(t, db)
