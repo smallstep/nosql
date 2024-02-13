@@ -38,7 +38,7 @@ func (db *DB) Open(uri string, opt ...database.Option) error {
 
 	clientOptions := options.Client().ApplyURI(uri)
 	if rs := clientOptions.ReplicaSet; *rs == "" {
-		return fmt.Errorf("to enable transactions, please provide a replica set name")
+		return fmt.Errorf("replica set name is required to enable transactions")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -46,11 +46,11 @@ func (db *DB) Open(uri string, opt ...database.Option) error {
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		return fmt.Errorf("failed to configuration: %v, %w", clientOptions, err)
+		return fmt.Errorf("failed to invalid options %v: %w", clientOptions, err)
 	}
 
 	if err = client.Ping(context.Background(), nil); err != nil {
-		return fmt.Errorf("failed connecting mongo to: %w", err)
+		return fmt.Errorf("failed connecting to MongoDB: %w", err)
 	}
 
 	dbOpts := options.Database()
@@ -67,10 +67,13 @@ func (db *DB) Close() error {
 	return nil
 }
 
+// CreateTable creates a collection or an embedded collection if it does not exists.
 func (db *DB) CreateTable(collection []byte) error {
 	return db.createTable(context.Background(), collection)
 }
 
+// DeleteTable deletes a root or embedded collection. Returns an error if the
+// collection cannot be found or if the key represents a non-collection value.
 func (db *DB) DeleteTable(collection []byte) error {
 	return db.deleteTable(context.Background(), collection)
 }
@@ -102,7 +105,7 @@ func (db *DB) CmpAndSwap(collection, key, oldValue, newValue []byte) ([]byte, bo
 
 	session, err := db.db.Client().StartSession()
 	if err != nil {
-		return oldValue, false, fmt.Errorf("failed starting session to: %w", err)
+		return oldValue, false, fmt.Errorf("failed starting session: %w", err)
 	}
 	defer session.EndSession(context.Background())
 
@@ -117,11 +120,11 @@ func (db *DB) CmpAndSwap(collection, key, oldValue, newValue []byte) ([]byte, bo
 			if err = session.AbortTransaction(ctx); err != nil {
 				return fmt.Errorf("failed to execute CmpAndSwap transaction on %s/%s and failed to rollback transaction: %w", collection, key, err)
 			}
-			return fmt.Errorf("failed aborting transaction to: %w", err)
+			return fmt.Errorf("failed aborting transaction: %w", err)
 		}
 
 		if err = session.CommitTransaction(ctx); err != nil {
-			return fmt.Errorf("failed committing transaction to: %w", err)
+			return fmt.Errorf("failed committing transaction: %w", err)
 		}
 		return nil
 	})
@@ -136,7 +139,7 @@ func (db *DB) Update(tx *database.Tx) error {
 
 	session, err := db.db.Client().StartSession()
 	if err != nil {
-		return fmt.Errorf("failed starting session to: %w", err)
+		return fmt.Errorf("failed starting session: %w", err)
 	}
 	defer session.EndSession(context.Background())
 
@@ -151,7 +154,7 @@ func (db *DB) Update(tx *database.Tx) error {
 		}
 
 		if err = session.CommitTransaction(ctx); err != nil {
-			return fmt.Errorf("failed committing transaction to: %w", err)
+			return fmt.Errorf("failed committing transaction: %w", err)
 		}
 		return nil
 	})
@@ -163,10 +166,9 @@ func (db *DB) Update(tx *database.Tx) error {
 	return nil
 }
 
-// CreateTable creates a collection or an embedded collection if it does not exists.
 func (db *DB) createTable(ctx context.Context, collection []byte) error {
 	if err := db.db.CreateCollection(ctx, string(collection)); err != nil {
-		return fmt.Errorf("failed creating collection %s to: %w", collection, err)
+		return fmt.Errorf("failed creating collection %q: %w", collection, err)
 	}
 
 	// create an index on the Key field
@@ -177,21 +179,19 @@ func (db *DB) createTable(ctx context.Context, collection []byte) error {
 
 	_, err := db.db.Collection(string(collection)).Indexes().CreateOne(ctx, index)
 	if err != nil {
-		return fmt.Errorf("failed creating collection %s to: %w", collection, err)
+		return fmt.Errorf("failed creating collection %q: %w", collection, err)
 	}
 
 	return nil
 }
 
-// DeleteTable deletes a root or embedded collection. Returns an error if the
-// collection cannot be found or if the key represents a non-collection value.
 func (db *DB) deleteTable(ctx context.Context, collection []byte) error {
 	if !collectionExists(ctx, db.db, string(collection)) {
-		return fmt.Errorf("failed deleting collection %s to: %w ", collection, database.ErrNotFound)
+		return fmt.Errorf("failed deleting collection %q: %w ", collection, database.ErrNotFound)
 	}
 
 	if err := db.db.Collection(string(collection)).Drop(ctx); err != nil {
-		return fmt.Errorf("failed dropping collection %s to: %w", collection, err)
+		return fmt.Errorf("failed dropping collection %q: %w", collection, err)
 	}
 	return nil
 }
@@ -201,12 +201,12 @@ func (db *DB) get(ctx context.Context, collection, key []byte) (ret []byte, err 
 	res := db.db.Collection(string(collection)).FindOne(ctx, filter)
 
 	if err := res.Err(); err != nil {
-		return nil, fmt.Errorf("failed finding %s/%s to: %w", collection, key, database.ErrNotFound)
+		return nil, fmt.Errorf("failed finding %s/%s: %w", collection, key, database.ErrNotFound)
 	}
 
 	result := tuple{}
 	if err := res.Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed decoding value for %s/%s to: %w", collection, key, err)
+		return nil, fmt.Errorf("failed decoding value for %s/%s: %w", collection, key, err)
 	}
 
 	return result.Value, nil
@@ -219,7 +219,7 @@ func (db *DB) set(ctx context.Context, collection, key, value []byte) error {
 
 	_, err := db.db.Collection(string(collection)).UpdateOne(ctx, filter, update, opts)
 	if err != nil {
-		return fmt.Errorf("failed setting value %s/%s to: %w", collection, key, err)
+		return fmt.Errorf("failed setting value %s/%s: %w", collection, key, err)
 	}
 	return nil
 }
@@ -227,7 +227,7 @@ func (db *DB) set(ctx context.Context, collection, key, value []byte) error {
 // List returns the full list of entries in a collection.
 func (db *DB) list(ctx context.Context, collection []byte) ([]*database.Entry, error) {
 	if !collectionExists(ctx, db.db, string(collection)) {
-		return nil, fmt.Errorf("failed finding collection %s: %w", collection, database.ErrNotFound)
+		return nil, fmt.Errorf("failed finding collection %q: %w", collection, database.ErrNotFound)
 	}
 
 	// match all
@@ -240,7 +240,7 @@ func (db *DB) list(ctx context.Context, collection []byte) ([]*database.Entry, e
 	defer cursor.Close(ctx)
 
 	if err = cursor.Err(); err != nil {
-		return nil, fmt.Errorf("failed listing values of %s to: %w", collection, err)
+		return nil, fmt.Errorf("failed listing values of %q: %w", collection, err)
 	}
 
 	var entries []*database.Entry
@@ -249,7 +249,7 @@ func (db *DB) list(ctx context.Context, collection []byte) ([]*database.Entry, e
 		t := tuple{}
 
 		if err := cursor.Decode(&t); err != nil {
-			return nil, fmt.Errorf("failed decoding value to: %w", err)
+			return nil, fmt.Errorf("failed decoding value: %w", err)
 		}
 
 		entries = append(entries, &database.Entry{
@@ -260,7 +260,7 @@ func (db *DB) list(ctx context.Context, collection []byte) ([]*database.Entry, e
 	}
 
 	if err = cursor.Err(); err != nil {
-		return nil, fmt.Errorf("failed listing values of collection %s to: %w", collection, err)
+		return nil, fmt.Errorf("failed listing values of collection %q: %w", collection, err)
 	}
 
 	return entries, nil
@@ -272,11 +272,11 @@ func (db *DB) del(ctx context.Context, collection, key []byte) error {
 
 	mongoRes, err := db.db.Collection(string(collection)).DeleteOne(ctx, filter)
 	if err != nil {
-		return fmt.Errorf("failed deleting %s/%s to: %w", collection, key, err)
+		return fmt.Errorf("failed deleting %s/%s: %w", collection, key, err)
 	}
 
 	if mongoRes.DeletedCount == 0 {
-		return fmt.Errorf("failed to delete: %s/%s to: %w", collection, key, database.ErrNotFound)
+		return fmt.Errorf("failed to delete: %s/%s: %w", collection, key, database.ErrNotFound)
 	}
 
 	return nil
@@ -359,7 +359,7 @@ func createUpdate(value []byte) bson.D {
 func abort(ctx context.Context, session mongo.Session, err error) error {
 	abortError := session.AbortTransaction(ctx)
 	if abortError != nil {
-		return fmt.Errorf("failed aborting transaction to: %w", err)
+		return fmt.Errorf("failed aborting transaction due to %q: %w", abortError, err)
 	}
-	return fmt.Errorf("failed update to: %w", err)
+	return fmt.Errorf("failed executing transaction: %w", err)
 }
