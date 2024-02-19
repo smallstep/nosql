@@ -191,7 +191,7 @@ type Viewer interface {
 	// See [DB] for the validations Get performs on the given bucket and key.
 	Get(ctx context.Context, bucket, key []byte) ([]byte, error)
 
-	// List returns the records of the given bucket, in lexicographical order (sorted by key). It
+	// List returns the records of the given bucket, in lexicographicaly sorted order (by key). It
 	// returns an error containing [ErrBucketNotFound] in its chain when the given bucket does not
 	// exist.
 	//
