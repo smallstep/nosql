@@ -23,15 +23,15 @@ func OpenV2(ctx context.Context, dir string) (nosql.DB, error) {
 	}
 
 	w := &wrapper[badgerv2.IteratorOptions, *badgerv2.Item, *badgerv2.Iterator, *badgerv2.Txn]{
-		DB:            db,
-		IsKeyNotFound: func(err error) bool { return errors.Is(err, badgerv2.ErrKeyNotFound) },
-		IsNoRewrite:   func(err error) bool { return errors.Is(err, badgerv2.ErrNoRewrite) },
-		KeysOnlyIteratorOptions: func(prefix []byte) badgerv2.IteratorOptions {
+		db:            db,
+		isKeyNotFound: func(err error) bool { return errors.Is(err, badgerv2.ErrKeyNotFound) },
+		isNoRewrite:   func(err error) bool { return errors.Is(err, badgerv2.ErrNoRewrite) },
+		keysOnlyIteratorOptions: func(prefix []byte) badgerv2.IteratorOptions {
 			return badgerv2.IteratorOptions{
 				Prefix: prefix,
 			}
 		},
-		KeysAndValuesIteratorOptions: func(prefix []byte) badgerv2.IteratorOptions {
+		keysAndValuesIteratorOptions: func(prefix []byte) badgerv2.IteratorOptions {
 			return badgerv2.IteratorOptions{
 				PrefetchValues: true,
 				PrefetchSize:   100,

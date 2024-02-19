@@ -102,15 +102,15 @@ type db[IO any, KV item, I iterator[KV], T tx[IO, KV, I]] interface {
 }
 
 type wrapper[IO any, KV item, I iterator[KV], TX tx[IO, KV, I]] struct {
-	DB                           db[IO, KV, I, TX]
-	IsKeyNotFound                func(error) bool
-	IsNoRewrite                  func(error) bool
-	KeysOnlyIteratorOptions      func(prefix []byte) IO
-	KeysAndValuesIteratorOptions func(prefix []byte) IO
+	db                           db[IO, KV, I, TX]
+	isKeyNotFound                func(error) bool
+	isNoRewrite                  func(error) bool
+	keysOnlyIteratorOptions      func(prefix []byte) IO
+	keysAndValuesIteratorOptions func(prefix []byte) IO
 }
 
 func (w *wrapper[_, _, _, _]) CompactByFactor(_ context.Context, factor float64) (err error) {
-	if err = w.DB.RunValueLogGC(factor); err != nil && w.IsNoRewrite(err) {
+	if err = w.db.RunValueLogGC(factor); err != nil && w.isNoRewrite(err) {
 		fmt.Fprintln(os.Stderr, err)
 
 		err = ErrNoRewrite
@@ -119,13 +119,13 @@ func (w *wrapper[_, _, _, _]) CompactByFactor(_ context.Context, factor float64)
 }
 
 func (w *wrapper[_, _, _, _]) Close(_ context.Context) error {
-	return w.DB.Close()
+	return w.db.Close()
 }
 
 func (w *wrapper[_, _, _, TX]) CreateBucket(_ context.Context, bucket []byte) error {
 	id := encode(bucket)
 
-	return w.DB.Update(func(tx TX) error {
+	return w.db.Update(func(tx TX) error {
 		return tx.Set(id, []byte{})
 	})
 }
@@ -133,8 +133,8 @@ func (w *wrapper[_, _, _, TX]) CreateBucket(_ context.Context, bucket []byte) er
 func (w *wrapper[_, _, _, TX]) DeleteBucket(_ context.Context, bucket []byte) error {
 	prefix := encode(bucket)
 
-	return w.DB.Update(func(tx TX) (err error) {
-		it := tx.NewIterator(w.KeysOnlyIteratorOptions(prefix))
+	return w.db.Update(func(tx TX) (err error) {
+		it := tx.NewIterator(w.keysOnlyIteratorOptions(prefix))
 		defer it.Close()
 
 		var found bool
@@ -202,22 +202,22 @@ func (w *wrapper[_, _, _, _]) CompareAndSwap(ctx context.Context, bucket, key, o
 }
 
 func (w *wrapper[IO, KV, S, TX]) View(_ context.Context, fn func(nosql.Viewer) error) error {
-	return w.DB.View(func(tx TX) error {
+	return w.db.View(func(tx TX) error {
 		return fn(&viewer[IO, KV, S, TX]{
 			tx:                           tx,
-			isKeyNotFound:                w.IsKeyNotFound,
-			keysAndValuesIteratorOptions: w.KeysAndValuesIteratorOptions,
+			isKeyNotFound:                w.isKeyNotFound,
+			keysAndValuesIteratorOptions: w.keysAndValuesIteratorOptions,
 		})
 	})
 }
 
 func (w *wrapper[IO, KV, S, TX]) Mutate(_ context.Context, fn func(nosql.Mutator) error) error {
-	return w.DB.Update(func(tx TX) error {
+	return w.db.Update(func(tx TX) error {
 		return fn(&mutator[IO, KV, S, TX]{
 			tx:                           tx,
-			isKeyNotFound:                w.IsKeyNotFound,
-			keysAndValuesIteratorOptions: w.KeysAndValuesIteratorOptions,
-			KeysOnlyIteratorOptions:      w.KeysOnlyIteratorOptions,
+			isKeyNotFound:                w.isKeyNotFound,
+			keysAndValuesIteratorOptions: w.keysAndValuesIteratorOptions,
+			KeysOnlyIteratorOptions:      w.keysOnlyIteratorOptions,
 		})
 	})
 }
@@ -368,16 +368,9 @@ func list[IO any, KV item, S iterator[KV]](it S, prefix []byte) ([]nosql.Record,
 		return nil, nosql.ErrBucketNotFound
 	}
 
-	// had we opted for big-endian instead of little-endian back in the day, this sort
-	// would probably have been not required
+	// we're delimiting the tokens so a sort is required.
 	slices.SortFunc(records, func(a, b nosql.Record) (v int) {
-		if v = bytes.Compare(a.Bucket, b.Bucket); v == 0 {
-			if v = bytes.Compare(a.Key, b.Key); v == 0 {
-				v = bytes.Compare(a.Value, b.Value)
-			}
-		}
-
-		return
+		return bytes.Compare(a.Key, b.Key)
 	})
 
 	return records, nil
@@ -392,7 +385,8 @@ func checkPrefix[IO any, KV item, S iterator[KV], TX tx[IO, KV, S]](tx TX, prefi
 	return err
 }
 
-// encode returns the encoded representation of the given tokens.
+// encode returns the encoded representation of the given tokens according to the given endianess
+// flag.
 func encode(tokens ...[]byte) (encoded []byte) {
 	var size int
 	for _, tok := range tokens {
