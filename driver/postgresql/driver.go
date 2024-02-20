@@ -157,10 +157,12 @@ var readOnlyOpts = pgx.TxOptions{
 }
 
 func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) error {
-	return pgx.BeginTxFunc(ctx, db.p, readOnlyOpts, func(tx pgx.Tx) error {
-		return fn(&wrapper[pgx.Tx]{
-			ds: tx,
-		})
+	return pgx.BeginTxFunc(ctx, db.p, readOnlyOpts, func(tx pgx.Tx) (err error) {
+		if err = fn(&wrapper[pgx.Tx]{tx}); err != nil && isRace(err) {
+			err = nosql.ErrRace
+		}
+
+		return
 	})
 }
 
@@ -170,10 +172,12 @@ var readWriteOpts = pgx.TxOptions{
 }
 
 func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) error {
-	return pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) error {
-		return fn(&wrapper[pgx.Tx]{
-			ds: tx,
-		})
+	return pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) (err error) {
+		if err = fn(&wrapper[pgx.Tx]{tx}); err != nil && isRace(err) {
+			err = nosql.ErrRace
+		}
+
+		return
 	})
 }
 
@@ -377,6 +381,10 @@ func isNoRows(err error) bool {
 
 func isUndefinedTable(err error) bool {
 	return isPostgresErrorCode(err, pgerrcode.UndefinedTable)
+}
+
+func isRace(err error) bool {
+	return isPostgresErrorCode(err, pgerrcode.SerializationFailure)
 }
 
 func isPostgresErrorCode(err error, code string) bool {

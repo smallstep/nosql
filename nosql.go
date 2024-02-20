@@ -53,6 +53,11 @@ var (
 	// ErrValueTooLong is contained in the chains of errors returned by functions that accept a
 	// value when the value's length exceeds [MaxValueSize].
 	ErrValueTooLong = errors.New(errPrefix + "value is too long")
+
+	// ErrRace is contained in the chains of errors returned by functions that experience
+	// a race condition or serialization error. In these cases the caller may opt to replay the
+	// transaction at a later time or abort it entirely.
+	ErrRace = errors.New(errPrefix + "serialization error")
 )
 
 // ComparisonError is a type of error contained in the chains of errors returned by CompareAndSwap
