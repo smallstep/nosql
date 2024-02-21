@@ -3,9 +3,10 @@ package each
 import (
 	"testing"
 
-	"github.com/smallstep/nosql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smallstep/nosql"
 )
 
 func TestBucket(t *testing.T) {
