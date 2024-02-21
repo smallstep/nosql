@@ -12,6 +12,7 @@ import (
 	"go.etcd.io/bbolt"
 
 	"github.com/smallstep/nosql"
+	"github.com/smallstep/nosql/internal/each"
 )
 
 func init() {
@@ -175,17 +176,33 @@ func (m *mutator) Delete(_ context.Context, bucket, key []byte) error {
 }
 
 func (m *mutator) Put(_ context.Context, bucket, key, value []byte) error {
-	return put(m.tx, bucket, key, value)
-}
-
-func (m *mutator) PutMany(_ context.Context, records ...nosql.Record) (err error) {
-	for _, r := range records {
-		if err = put(m.tx, r.Bucket, r.Key, r.Value); err != nil {
-			break
-		}
+	b := m.tx.Bucket(bucket)
+	if b == nil {
+		return nosql.ErrBucketNotFound
 	}
 
-	return
+	return b.Put(key, value)
+}
+
+func (m *mutator) PutMany(_ context.Context, records ...nosql.Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	return each.Bucket(records, func(bucket []byte, rex []*nosql.Record) error {
+		b := m.tx.Bucket(bucket)
+		if b == nil {
+			return nosql.ErrBucketNotFound
+		}
+
+		for _, r := range rex {
+			if err := b.Put(r.Key, r.Value); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func get(tx *bbolt.Tx, bucket, key []byte) (value []byte, err error) {
@@ -217,15 +234,6 @@ func list(tx *bbolt.Tx, bucket []byte) (records []nosql.Record, err error) {
 	})
 
 	return
-}
-
-func put(tx *bbolt.Tx, bucket, key, value []byte) error {
-	b := tx.Bucket(bucket)
-	if b == nil {
-		return nosql.ErrBucketNotFound
-	}
-
-	return b.Put(key, value)
 }
 
 // ContextWithOptions returns a [context.Context] that carries the provided [bbolt.Options].

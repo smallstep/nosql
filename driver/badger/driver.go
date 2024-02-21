@@ -18,6 +18,7 @@ import (
 	badgerv3 "github.com/dgraph-io/badger/v3"
 
 	"github.com/smallstep/nosql"
+	"github.com/smallstep/nosql/internal/each"
 )
 
 func init() {
@@ -111,8 +112,6 @@ type wrapper[IO any, KV item, I iterator[KV], TX tx[IO, KV, I]] struct {
 
 func (w *wrapper[_, _, _, _]) CompactByFactor(_ context.Context, factor float64) (err error) {
 	if err = w.db.RunValueLogGC(factor); err != nil && w.isNoRewrite(err) {
-		fmt.Fprintln(os.Stderr, err)
-
 		err = ErrNoRewrite
 	}
 	return
@@ -123,7 +122,7 @@ func (w *wrapper[_, _, _, _]) Close(_ context.Context) error {
 }
 
 func (w *wrapper[_, _, _, TX]) CreateBucket(_ context.Context, bucket []byte) error {
-	id := encode(bucket)
+	id := encode(nil, bucket)
 
 	return w.db.Update(func(tx TX) error {
 		return tx.Set(id, []byte{})
@@ -131,7 +130,7 @@ func (w *wrapper[_, _, _, TX]) CreateBucket(_ context.Context, bucket []byte) er
 }
 
 func (w *wrapper[_, _, _, TX]) DeleteBucket(_ context.Context, bucket []byte) error {
-	prefix := encode(bucket)
+	prefix := encode(nil, bucket)
 
 	return w.db.Update(func(tx TX) (err error) {
 		it := tx.NewIterator(w.keysOnlyIteratorOptions(prefix))
@@ -139,12 +138,12 @@ func (w *wrapper[_, _, _, TX]) DeleteBucket(_ context.Context, bucket []byte) er
 
 		var found bool
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			id := it.Item().KeyCopy(nil)
+			id := it.Item().Key()
 			if bytes.Equal(prefix, id) {
 				found = true
 			}
 
-			if err = tx.Delete(id); err != nil {
+			if err = tx.Delete(slices.Clone(id)); err != nil {
 				return
 			}
 		}
@@ -233,7 +232,7 @@ func (v *viewer[_, _, _, _]) Get(_ context.Context, bucket, key []byte) ([]byte,
 }
 
 func (v *viewer[IO, KV, S, _]) List(_ context.Context, bucket []byte) ([]nosql.Record, error) {
-	prefix := encode(bucket)
+	prefix := encode(nil, bucket)
 
 	it := v.tx.NewIterator(v.keysAndValuesIteratorOptions(prefix))
 	defer it.Close()
@@ -253,7 +252,7 @@ func (m *mutator[_, _, _, _]) Get(_ context.Context, bucket, key []byte) ([]byte
 }
 
 func (m *mutator[IO, KV, S, _]) List(_ context.Context, bucket []byte) ([]nosql.Record, error) {
-	prefix := encode(bucket)
+	prefix := encode(nil, bucket)
 
 	it := m.tx.NewIterator(m.keysAndValuesIteratorOptions(prefix))
 	defer it.Close()
@@ -261,8 +260,8 @@ func (m *mutator[IO, KV, S, _]) List(_ context.Context, bucket []byte) ([]nosql.
 	return list[IO, KV, S](it, prefix)
 }
 
-func (m *mutator[_, KV, _, _]) CompareAndSwap(_ context.Context, bucket, key, oldValue, newValue []byte) error {
-	id := encode(bucket, key)
+func (m *mutator[_, _, _, _]) CompareAndSwap(_ context.Context, bucket, key, oldValue, newValue []byte) error {
+	id := encode(nil, bucket, key)
 
 	if err := checkPrefix(m.tx, id[:2+len(bucket)], m.isKeyNotFound); err != nil {
 		return err
@@ -293,7 +292,7 @@ func (m *mutator[_, KV, _, _]) CompareAndSwap(_ context.Context, bucket, key, ol
 }
 
 func (m *mutator[_, _, _, _]) Delete(_ context.Context, bucket, key []byte) (err error) {
-	id := encode(bucket, key)
+	id := encode(nil, bucket, key)
 
 	if err = checkPrefix(m.tx, id[:2+len(bucket)], m.isKeyNotFound); err == nil {
 		err = m.tx.Delete(id)
@@ -303,7 +302,7 @@ func (m *mutator[_, _, _, _]) Delete(_ context.Context, bucket, key []byte) (err
 }
 
 func (m *mutator[_, _, _, _]) Put(_ context.Context, bucket, key, value []byte) (err error) {
-	id := encode(bucket, key)
+	id := encode(nil, bucket, key)
 
 	if err = checkPrefix(m.tx, id[:2+len(bucket)], m.isKeyNotFound); err == nil {
 		err = m.tx.Set(id, value)
@@ -312,18 +311,34 @@ func (m *mutator[_, _, _, _]) Put(_ context.Context, bucket, key, value []byte) 
 	return
 }
 
-func (m *mutator[_, _, _, _]) PutMany(ctx context.Context, records ...nosql.Record) (err error) {
-	for _, r := range records {
-		if err = m.Put(ctx, r.Bucket, r.Key, r.Value); err != nil {
-			break
-		}
+func (m *mutator[_, _, _, _]) PutMany(_ context.Context, records ...nosql.Record) error {
+	if len(records) == 0 {
+		return nil
 	}
 
-	return
+	prefix := make([]byte, 0, 2+nosql.MaxBucketSize)
+
+	return each.Bucket(records, func(bucket []byte, rex []*nosql.Record) (err error) {
+		prefix = encode(prefix[:0], bucket)
+
+		if err = checkPrefix(m.tx, prefix, m.isKeyNotFound); err != nil {
+			return
+		}
+
+		for _, r := range rex {
+			id := encode(prefix[:len(prefix):len(prefix)], r.Key)
+
+			if err = m.tx.Set(id, r.Value); err != nil {
+				break
+			}
+		}
+
+		return
+	})
 }
 
 func get[IO any, KV item, S iterator[KV], TX tx[IO, KV, S]](tx TX, bucket, key []byte, isKeyNotFound func(error) bool) ([]byte, error) {
-	id := encode(bucket, key)
+	id := encode(nil, bucket, key)
 
 	if err := checkPrefix(tx, id[:2+len(bucket)], isKeyNotFound); err != nil {
 		return nil, err
@@ -381,30 +396,24 @@ func checkPrefix[IO any, KV item, S iterator[KV], TX tx[IO, KV, S]](tx TX, prefi
 	if _, err = tx.Get(prefix); err != nil && isKeyNotFound(err) {
 		err = nosql.ErrBucketNotFound
 	}
-
-	return err
+	return
 }
 
-// encode returns the encoded representation of the given tokens according to the given endianess
-// flag.
-func encode(tokens ...[]byte) (encoded []byte) {
-	var size int
+// encode appends the encoded representation of the given tokens to the given destination buffer
+// and returns the result.
+func encode(dst []byte, tokens ...[]byte) []byte {
 	for _, tok := range tokens {
-		l := len(tok)
-		if l > math.MaxUint16 {
+		if l := len(tok); l > math.MaxUint16 {
 			panic(fmt.Errorf("token is too long (%d)", l))
 		}
-		size += 2 + l
 	}
-
-	encoded = make([]byte, 0, size)
 
 	for _, tok := range tokens {
-		encoded = binary.LittleEndian.AppendUint16(encoded, uint16(len(tok)))
-		encoded = append(encoded, tok...)
+		dst = binary.LittleEndian.AppendUint16(dst, uint16(len(tok)))
+		dst = append(dst, tok...)
 	}
 
-	return
+	return dst
 }
 
 // ContextWithOptions returns a copy of the provided [context.Context] that carries the provided
