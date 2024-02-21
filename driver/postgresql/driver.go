@@ -2,7 +2,6 @@
 package postgresql
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smallstep/nosql"
+	"github.com/smallstep/nosql/internal/each"
 )
 
 func init() {
@@ -367,38 +367,22 @@ func del[E executor](ctx context.Context, e E, bucket, key []byte) (err error) {
 func putMany[B batcher](ctx context.Context, b B, records ...nosql.Record) error {
 	var (
 		seed = maphash.MakeSeed()
-		bm   = map[uint64]struct{}{} // buckets map, sum(bucket) -> presence
-		km   = map[uint64][]byte{}   // keys map, sum(key) -> key
-		vm   = map[uint64][]byte{}   // values map, sum(key) -> value
+		km   = map[uint64][]byte{} // keys map, sum(key) -> key
+		vm   = map[uint64][]byte{} // values map, sum(key) -> value
 
 		keys [][]byte // reusable keys buffer
 		vals [][]byte // reusable values buffer
+
+		batch pgx.Batch
 	)
 
-	var batch pgx.Batch
-
-	for i, r := range records {
-		id := maphash.Bytes(seed, r.Bucket)
-		if _, ok := bm[id]; ok {
-			continue // bucket already processed
-		}
-		bm[id] = struct{}{}
-
+	_ = each.Bucket(records, func(bucket []byte, rex []*nosql.Record) (_ error) {
 		// we can't INSERT ... ON CONFLICT DO UPDATE for the same key more than once so we'll
 		// ensure that the last key is the only one sent per bucket
-
-		id = maphash.Bytes(seed, r.Key)
-		km[id] = r.Key
-		vm[id] = r.Value
-
-		for _, rr := range records[i+1:] {
-			if !bytes.Equal(r.Bucket, rr.Bucket) {
-				continue // different bucket
-			}
-
-			id := maphash.Bytes(seed, rr.Key)
-			km[id] = rr.Key
-			vm[id] = rr.Value
+		for _, r := range rex {
+			id := maphash.Bytes(seed, r.Key)
+			km[id] = r.Key
+			vm[id] = r.Value
 		}
 
 		for id, key := range km {
@@ -411,7 +395,7 @@ func putMany[B batcher](ctx context.Context, b B, records ...nosql.Record) error
 			SELECT *
 			FROM unnest($1::BYTEA[], $2::BYTEA[])
 			ON CONFLICT(nkey) DO UPDATE SET nvalue = EXCLUDED.nvalue;
-		`, quote(r.Bucket))
+		`, quote(bucket))
 
 		// we have to pass clones of the keys and the values
 		_ = batch.Queue(sql, slices.Clone(keys), slices.Clone(vals))
@@ -421,10 +405,12 @@ func putMany[B batcher](ctx context.Context, b B, records ...nosql.Record) error
 		clear(vm)
 		keys = keys[:0]
 		vals = vals[:0]
-	}
+
+		return
+	})
 
 	err := b.SendBatch(ctx, &batch).Close()
-	if err != nil && isUndefinedTable(err) {
+	if isUndefinedTable(err) {
 		err = nosql.ErrBucketNotFound
 	}
 	return err
