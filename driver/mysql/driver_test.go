@@ -34,7 +34,7 @@ func Test(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			t.Cleanup(cancel)
 
-			setup(ctx, t, dsn)
+			dropTestDatabase(ctx, t, dsn)
 
 			db, err := Open(ctx, dsn)
 			require.NoError(t, err)
@@ -44,7 +44,7 @@ func Test(t *testing.T) {
 	}
 }
 
-func setup(ctx context.Context, t *testing.T, dsn string) {
+func dropTestDatabase(ctx context.Context, t *testing.T, dsn string) {
 	t.Helper()
 
 	cfg, err := mysql.ParseDSN(dsn)
