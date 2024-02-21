@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"slices"
 	"strings"
 
@@ -22,7 +23,7 @@ func Open(ctx context.Context, dsn string) (nosql.DB, error) {
 		return nil, err
 	}
 
-	if err := createDatabaseIfRequired(ctx, cfg); err != nil {
+	if err := setup(ctx, cfg); err != nil {
 		return nil, err
 	}
 
@@ -36,8 +37,8 @@ func Open(ctx context.Context, dsn string) (nosql.DB, error) {
 	}), nil
 }
 
-// createDatabaseIfRequired ensures that the database exists
-func createDatabaseIfRequired(ctx context.Context, cfg *mysql.Config) (err error) {
+// setup ensures that the database exists
+func setup(ctx context.Context, cfg *mysql.Config) (err error) {
 	cfg = cfg.Clone() // work on a clone of the config
 
 	dbName := cfg.DBName
@@ -53,9 +54,24 @@ func createDatabaseIfRequired(ctx context.Context, cfg *mysql.Config) (err error
 		}
 	}()
 
-	query := fmt.Sprintf( /* sql */ `CREATE DATABASE IF NOT EXISTS %s;`, quote(dbName))
+	const checkSQL = /* sql */ `
+		SELECT TRUE
+		FROM INFORMATION_SCHEMA.SCHEMATA
+		WHERE SCHEMA_NAME = ?
+	`
 
-	_, err = db.ExecContext(ctx, query)
+	var exists bool
+	switch err = db.QueryRowContext(ctx, checkSQL, dbName).Scan(&exists); {
+	case err == nil:
+		return // database exists
+	case isNoRows(err):
+		// database does not exist; create it
+		createSQL := fmt.Sprintf( /* sql */ `
+			CREATE DATABASE IF NOT EXISTS %s;
+		`, quote(dbName))
+
+		_, err = db.ExecContext(ctx, createSQL)
+	}
 
 	return
 }
@@ -118,9 +134,7 @@ func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
 }
 
 func (db *db) Delete(ctx context.Context, bucket, key []byte) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.Delete(ctx, bucket, key)
-	})
+	return del(ctx, db.pool, bucket, key)
 }
 
 func (db *db) PutMany(ctx context.Context, records ...nosql.Record) error {
@@ -130,17 +144,11 @@ func (db *db) PutMany(ctx context.Context, records ...nosql.Record) error {
 }
 
 func (db *db) Put(ctx context.Context, bucket, key, value []byte) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.Put(ctx, bucket, key, value)
-	})
+	return put(ctx, db.pool, bucket, key, value)
 }
 
-func (db *db) Get(ctx context.Context, bucket, key []byte) (value []byte, err error) {
-	err = db.View(ctx, func(v nosql.Viewer) (err error) {
-		value, err = v.Get(ctx, bucket, key)
-		return
-	})
-	return
+func (db *db) Get(ctx context.Context, bucket, key []byte) ([]byte, error) {
+	return get(ctx, db.pool, bucket, key)
 }
 
 func (db *db) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
@@ -149,13 +157,8 @@ func (db *db) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValu
 	})
 }
 
-func (db *db) List(ctx context.Context, bucket []byte) (kvs []nosql.Record, err error) {
-	err = db.View(ctx, func(v nosql.Viewer) (err error) {
-		kvs, err = v.List(ctx, bucket)
-
-		return
-	})
-	return
+func (db *db) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
+	return list(ctx, db.pool, bucket)
 }
 
 var viewOpts = sql.TxOptions{
@@ -193,51 +196,16 @@ type wrapper struct {
 	tx *sql.Tx
 }
 
-func (w *wrapper) Get(ctx context.Context, bucket, key []byte) (value []byte, err error) {
-	//nolint:gosec // we're escaping the table
-	query := fmt.Sprintf( /* sql */ `
-		SELECT nvalue
-		FROM %s
-		WHERE nkey = ?;
-	`, quote(bucket))
-
-	switch err = w.tx.QueryRowContext(ctx, query, key).Scan(&value); {
-	case isNoRows(err):
-		err = nosql.ErrKeyNotFound
-	case isTableNotFound(err):
-		err = nosql.ErrBucketNotFound
-	}
-
-	return
+func (w *wrapper) Get(ctx context.Context, bucket, key []byte) ([]byte, error) {
+	return get(ctx, w.tx, bucket, key)
 }
 
-func (w *wrapper) Put(ctx context.Context, bucket, key, value []byte) (err error) {
-	//nolint:gosec // we're escaping the table
-	query := fmt.Sprintf( /* sql */ `
-		INSERT INTO %s ( nkey, nvalue )
-		VALUES ( ?, ? )
-		ON DUPLICATE KEY UPDATE nvalue = VALUES(nvalue);
-	`, quote(bucket))
-
-	if _, err = w.tx.ExecContext(ctx, query, key, value); err != nil && isTableNotFound(err) {
-		err = nosql.ErrBucketNotFound
-	}
-
-	return
+func (w *wrapper) Put(ctx context.Context, bucket, key, value []byte) error {
+	return put(ctx, w.tx, bucket, key, value)
 }
 
 func (w *wrapper) Delete(ctx context.Context, bucket, key []byte) (err error) {
-	//nolint:gosec // we're escaping the table
-	query := fmt.Sprintf( /* sql */ `
-		DELETE FROM %s
-		WHERE nkey = ?;
-	`, quote(bucket))
-
-	if _, err = w.tx.ExecContext(ctx, query, key); err != nil && isTableNotFound(err) {
-		err = nosql.ErrBucketNotFound
-	}
-
-	return
+	return del(ctx, w.tx, bucket, key)
 }
 
 func (w *wrapper) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
@@ -288,29 +256,107 @@ func (w *wrapper) CompareAndSwap(ctx context.Context, bucket, key, oldValue, new
 	}
 }
 
-func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) (err error) {
-	// TODO: this can be optimized
+func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) error {
+	if len(records) == 0 {
+		return nil // save the round trip
+	}
 
-	for _, r := range records {
-		if err = w.Put(ctx, r.Bucket, r.Key, r.Value); err != nil {
-			break
+	var (
+		seed = maphash.MakeSeed()
+		bm   = map[uint64]struct{}{} // buckets map, sum(bucket) -> presence
+
+		keysAndVals []any // reusable keys/value buffer
+	)
+
+	for i, r := range records {
+		id := maphash.Bytes(seed, r.Bucket)
+		if _, ok := bm[id]; ok {
+			continue // bucket already processed
 		}
+		bm[id] = struct{}{}
+
+		keysAndVals = append(keysAndVals, r.Key, r.Value)
+
+		for _, rr := range records[i+1:] {
+			if !bytes.Equal(r.Bucket, rr.Bucket) {
+				continue // different bucket
+			}
+
+			keysAndVals = append(keysAndVals, rr.Key, rr.Value)
+		}
+
+		var (
+			suffix = strings.TrimSuffix(strings.Repeat("(?, ?), ", len(keysAndVals)>>1), ", ")
+
+			query = fmt.Sprintf( /* sql */ `
+				INSERT INTO %s (nkey, nvalue)
+				VALUES %s
+				ON DUPLICATE KEY UPDATE nvalue = VALUES(nvalue);
+			`, quote(r.Bucket), suffix)
+		)
+
+		if _, err := w.tx.ExecContext(ctx, query, keysAndVals...); err != nil {
+			if isTableNotFound(err) {
+				err = nosql.ErrBucketNotFound
+			}
+
+			return err
+		}
+
+		// clear the buffers before the next iteration
+		keysAndVals = keysAndVals[:0]
+	}
+
+	return nil
+}
+
+func (w *wrapper) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
+	return list(ctx, w.tx, bucket)
+}
+
+// --- helpers
+
+// generic constraints
+// generic constraints
+type (
+	executor interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	}
+
+	querier interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	}
+
+	rowQuerier interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	}
+)
+
+func get[RQ rowQuerier](ctx context.Context, rq RQ, bucket, key []byte) (value []byte, err error) {
+	query := fmt.Sprintf( /* sql */ `
+		SELECT nvalue
+		FROM %s
+		WHERE nkey = ?;
+	`, quote(bucket))
+
+	switch err = rq.QueryRowContext(ctx, query, key).Scan(&value); {
+	case isNoRows(err):
+		err = nosql.ErrKeyNotFound
+	case isTableNotFound(err):
+		err = nosql.ErrBucketNotFound
 	}
 
 	return
 }
 
-func (w *wrapper) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
-	//nolint:gosec // we're escape the table name
+func list[Q querier](ctx context.Context, q Q, bucket []byte) ([]nosql.Record, error) {
 	query := fmt.Sprintf( /* sql */ `
-		SELECT
-			nkey,
-			nvalue
+		SELECT nkey, nvalue
 		FROM %s
 		ORDER BY nkey;
 	`, quote(bucket))
 
-	rows, err := w.tx.QueryContext(ctx, query)
+	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
 		if isTableNotFound(err) {
 			err = nosql.ErrBucketNotFound
@@ -340,7 +386,32 @@ func (w *wrapper) List(ctx context.Context, bucket []byte) ([]nosql.Record, erro
 	return records, nil
 }
 
-// --- helpers
+func del[E executor](ctx context.Context, e E, bucket, key []byte) (err error) {
+	query := fmt.Sprintf( /* sql */ `
+		DELETE FROM %s
+		WHERE nkey = ?;
+	`, quote(bucket))
+
+	if _, err = e.ExecContext(ctx, query, key); err != nil && isTableNotFound(err) {
+		err = nosql.ErrBucketNotFound
+	}
+
+	return
+}
+
+func put[E executor](ctx context.Context, e E, bucket, key, value []byte) (err error) {
+	query := fmt.Sprintf( /* sql */ `
+		INSERT INTO %s ( nkey, nvalue )
+		VALUES ( ?, ? )
+		ON DUPLICATE KEY UPDATE nvalue = VALUES(nvalue);
+	`, quote(bucket))
+
+	if _, err = e.ExecContext(ctx, query, key, value); err != nil && isTableNotFound(err) {
+		err = nosql.ErrBucketNotFound
+	}
+
+	return
+}
 
 func quote[T ~string | ~[]byte](id T) string {
 	var sb strings.Builder
