@@ -7,13 +7,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"hash/maphash"
 	"slices"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/smallstep/nosql"
+	"github.com/smallstep/nosql/internal/each"
 )
 
 // Open implements a [nosql.Driver] for MySQL databases.
@@ -274,28 +274,11 @@ func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) error {
 		return nil // save the round trip
 	}
 
-	var (
-		seed = maphash.MakeSeed()
-		bm   = map[uint64]struct{}{} // buckets map, sum(bucket) -> presence
+	var keysAndVals []any // reusable keys/value buffer
 
-		keysAndVals []any // reusable keys/value buffer
-	)
-
-	for i, r := range records {
-		id := maphash.Bytes(seed, r.Bucket)
-		if _, ok := bm[id]; ok {
-			continue // bucket already processed
-		}
-		bm[id] = struct{}{}
-
-		keysAndVals = append(keysAndVals, r.Key, r.Value)
-
-		for _, rr := range records[i+1:] {
-			if !bytes.Equal(r.Bucket, rr.Bucket) {
-				continue // different bucket
-			}
-
-			keysAndVals = append(keysAndVals, rr.Key, rr.Value)
+	return each.Bucket(records, func(bucket []byte, rex []*nosql.Record) error {
+		for _, r := range rex {
+			keysAndVals = append(keysAndVals, r.Key, r.Value)
 		}
 
 		var (
@@ -305,7 +288,7 @@ func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) error {
 				INSERT INTO %s (nkey, nvalue)
 				VALUES %s
 				ON DUPLICATE KEY UPDATE nvalue = VALUES(nvalue);
-			`, quote(r.Bucket), suffix)
+			`, quote(bucket), suffix)
 		)
 
 		if _, err := w.tx.ExecContext(ctx, query, keysAndVals...); err != nil {
@@ -316,11 +299,10 @@ func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) error {
 			return err
 		}
 
-		// clear the buffers before the next iteration
 		keysAndVals = keysAndVals[:0]
-	}
 
-	return nil
+		return nil
+	})
 }
 
 func (w *wrapper) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
