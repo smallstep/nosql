@@ -36,7 +36,7 @@ func Open(ctx context.Context, dsn string) (nosql.DB, error) {
 	}
 
 	return nosql.Constrain(&db{
-		p: pool,
+		pool: pool,
 	}), nil
 }
 
@@ -93,16 +93,16 @@ func determineDatabaseName(cfg *pgx.ConnConfig) (db string) {
 }
 
 type db struct {
-	p *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
 func (db *db) Close(context.Context) error {
-	db.p.Close()
+	db.pool.Close()
 	return nil
 }
 
 func (db *db) CreateBucket(ctx context.Context, bucket []byte) error {
-	return pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) error {
+	return pgx.BeginTxFunc(ctx, db.pool, readWriteOpts, func(tx pgx.Tx) error {
 		// we avoid CREATE TABLE IF NOT EXISTS in case the table is there but
 		// the permissions are not
 
@@ -129,7 +129,7 @@ func (db *db) CreateBucket(ctx context.Context, bucket []byte) error {
 			);
 		`, quote(bucket), nosql.MinKeySize, nosql.MaxKeySize, nosql.MaxValueSize)
 
-		_, err := db.p.Exec(ctx, createSQL)
+		_, err := db.pool.Exec(ctx, createSQL)
 		return err
 	})
 }
@@ -139,7 +139,7 @@ func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
 		DROP TABLE %s;
 	`, quote(bucket))
 
-	if _, err = db.p.Exec(ctx, sql); err != nil && isUndefinedTable(err) {
+	if _, err = db.pool.Exec(ctx, sql); err != nil && isUndefinedTable(err) {
 		err = nosql.ErrBucketNotFound
 	}
 
@@ -147,7 +147,7 @@ func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
 }
 
 func (db *db) Delete(ctx context.Context, bucket, key []byte) error {
-	return del(ctx, db.p, bucket, key)
+	return del(ctx, db.pool, bucket, key)
 }
 
 func (db *db) PutMany(ctx context.Context, records ...nosql.Record) error {
@@ -155,23 +155,23 @@ func (db *db) PutMany(ctx context.Context, records ...nosql.Record) error {
 		return nil // save the round trip
 	}
 
-	return putMany(ctx, db.p, records...)
+	return putMany(ctx, db.pool, records...)
 }
 
 func (db *db) Put(ctx context.Context, bucket, key, value []byte) error {
-	return put(ctx, db.p, bucket, key, value)
+	return put(ctx, db.pool, bucket, key, value)
 }
 
 func (db *db) Get(ctx context.Context, bucket, key []byte) ([]byte, error) {
-	return get(ctx, db.p, bucket, key)
+	return get(ctx, db.pool, bucket, key)
 }
 
 func (db *db) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
-	return cas(ctx, db.p, bucket, key, oldValue, newValue)
+	return cas(ctx, db.pool, bucket, key, oldValue, newValue)
 }
 
 func (db *db) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
-	return list(ctx, db.p, bucket)
+	return list(ctx, db.pool, bucket)
 }
 
 var readOnlyOpts = pgx.TxOptions{
@@ -180,7 +180,7 @@ var readOnlyOpts = pgx.TxOptions{
 }
 
 func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) (err error) {
-	if err = pgx.BeginTxFunc(ctx, db.p, readOnlyOpts, func(tx pgx.Tx) error {
+	if err = pgx.BeginTxFunc(ctx, db.pool, readOnlyOpts, func(tx pgx.Tx) error {
 		return fn(&wrapper{tx})
 	}); err != nil && isRace(err) {
 		err = nosql.ErrRace
@@ -195,7 +195,7 @@ var readWriteOpts = pgx.TxOptions{
 }
 
 func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) (err error) {
-	if err = pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) error {
+	if err = pgx.BeginTxFunc(ctx, db.pool, readWriteOpts, func(tx pgx.Tx) error {
 		return fn(&wrapper{tx})
 	}); err != nil && isRace(err) {
 		err = nosql.ErrRace
