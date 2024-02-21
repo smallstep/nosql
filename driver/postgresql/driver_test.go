@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smallstep/nosql/dbtest"
@@ -20,13 +21,14 @@ func TestDB(t *testing.T) {
 	}
 
 	// tear down the test database if it already exists
-	cfg, err := pgx.ParseConfig(dsn)
+	poolConfig, err := pgxpool.ParseConfig(dsn)
 	require.NoError(t, err)
 
+	cfg := poolConfig.ConnConfig.Copy()
 	dbName := determineDatabaseName(cfg)
 	cfg.Database = "postgres"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	conn, err := pgx.ConnectConfig(ctx, cfg)

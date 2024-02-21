@@ -2,9 +2,11 @@
 package postgresql
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"os"
 	"os/user"
 	"slices"
@@ -27,43 +29,48 @@ func Open(ctx context.Context, dsn string) (nosql.DB, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
-	}
+	} else if err := setup(ctx, pool.Config().ConnConfig); err != nil {
+		pool.Close()
 
-	if err := pool.Ping(ctx); err != nil {
-		if !isPostgresErrorCode(err, pgerrcode.InvalidCatalogName) {
-			return nil, err
-		}
-
-		// attempt to create the catalog, since it does not already exist
-		if err := createCatalog(ctx, pool); err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	return nosql.Constrain(&db{
 		p: pool,
-		w: &wrapper[*pgxpool.Pool]{ds: pool},
 	}), nil
 }
 
-func createCatalog(ctx context.Context, pool *pgxpool.Pool) error {
-	// we'll be working on a new connection, so get a copy of the config we can mutate
-	cfg := pool.Config().ConnConfig
+func setup(ctx context.Context, cfg *pgx.ConnConfig) (err error) {
 	db := determineDatabaseName(cfg)
 	cfg.Database = "postgres"
 
 	var conn *pgx.Conn
-	conn, err := pgx.ConnectConfig(ctx, cfg)
-	if err != nil {
-		return err
+	if conn, err = pgx.ConnectConfig(ctx, cfg); err != nil {
+		return
 	}
 	defer conn.Close(ctx)
 
-	sql := fmt.Sprintf( /* sql */ `
+	// check if the database already exists
+	const checkSQL = /* sql */ `
+		SELECT TRUE
+		FROM pg_catalog.pg_database
+		WHERE datname = $1;
+	`
+	var exists bool
+	switch err = conn.QueryRow(ctx, checkSQL, db).Scan(&exists); {
+	case err == nil:
+		return // database exists
+	case isNoRows(err):
+		break // database does not exist; proceed with creating it
+	default:
+		return // another error occurred
+	}
+
+	createSQL := fmt.Sprintf( /* sql */ `
 		CREATE DATABASE %s;
 	`, quote(db))
 
-	if _, err = conn.Exec(ctx, sql); isPostgresErrorCode(err, pgerrcode.DuplicateDatabase) {
+	if _, err = conn.Exec(ctx, createSQL); isPostgresErrorCode(err, pgerrcode.DuplicateDatabase) {
 		err = nil // the database was created while we were also trying to create it
 	}
 
@@ -87,7 +94,6 @@ func determineDatabaseName(cfg *pgx.ConnConfig) (db string) {
 
 type db struct {
 	p *pgxpool.Pool
-	w *wrapper[*pgxpool.Pool]
 }
 
 func (db *db) Close(context.Context) error {
@@ -96,18 +102,36 @@ func (db *db) Close(context.Context) error {
 }
 
 func (db *db) CreateBucket(ctx context.Context, bucket []byte) error {
-	sql := fmt.Sprintf( /* sql */ `
-		CREATE TABLE IF NOT EXISTS %s (
-			nkey BYTEA NOT NULL CHECK ( octet_length(nkey) BETWEEN %d AND %d ),
-			nvalue BYTEA NOT NULL CHECK ( octet_length(nvalue) <= %d ),
-			
-			PRIMARY KEY (nkey)
-		);
-	`, quote(bucket), nosql.MinKeySize, nosql.MaxKeySize, nosql.MaxValueSize)
+	return pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) error {
+		// we avoid CREATE TABLE IF NOT EXISTS in case the table is there but
+		// the permissions are not
 
-	_, err := db.p.Exec(ctx, sql)
+		const checkSQL = /* sql */ `
+			SELECT EXISTS (
+				SELECT FROM pg_tables
+				WHERE schemaname = CURRENT_SCHEMA AND tablename  = $1
+			);
+		`
 
-	return err
+		var exists bool
+		if err := tx.QueryRow(ctx, checkSQL, bucket).Scan(&exists); err != nil {
+			return err
+		} else if exists {
+			return nil
+		}
+
+		createSQL := fmt.Sprintf( /* sql */ `
+			CREATE TABLE IF NOT EXISTS %s (
+				nkey BYTEA NOT NULL CHECK ( octet_length(nkey) BETWEEN %d AND %d ),
+				nvalue BYTEA NOT NULL CHECK ( octet_length(nvalue) <= %d ),
+				
+				PRIMARY KEY (nkey)
+			);
+		`, quote(bucket), nosql.MinKeySize, nosql.MaxKeySize, nosql.MaxValueSize)
+
+		_, err := db.p.Exec(ctx, createSQL)
+		return err
+	})
 }
 
 func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
@@ -115,10 +139,7 @@ func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
 		DROP TABLE %s;
 	`, quote(bucket))
 
-	switch _, err = db.p.Exec(ctx, sql); {
-	case err == nil:
-		break
-	case isUndefinedTable(err):
+	if _, err = db.p.Exec(ctx, sql); err != nil && isUndefinedTable(err) {
 		err = nosql.ErrBucketNotFound
 	}
 
@@ -126,29 +147,31 @@ func (db *db) DeleteBucket(ctx context.Context, bucket []byte) (err error) {
 }
 
 func (db *db) Delete(ctx context.Context, bucket, key []byte) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.Delete(ctx, bucket, key)
-	})
+	return del(ctx, db.p, bucket, key)
 }
 
 func (db *db) PutMany(ctx context.Context, records ...nosql.Record) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.PutMany(ctx, records...)
-	})
+	if len(records) == 0 {
+		return nil // save the round trip
+	}
+
+	return putMany(ctx, db.p, records...)
 }
 
 func (db *db) Put(ctx context.Context, bucket, key, value []byte) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.Put(ctx, bucket, key, value)
-	})
+	return put(ctx, db.p, bucket, key, value)
 }
 
-func (db *db) Get(ctx context.Context, bucket, key []byte) (value []byte, err error) {
-	err = db.View(ctx, func(v nosql.Viewer) (err error) {
-		value, err = v.Get(ctx, bucket, key)
-		return
-	})
-	return
+func (db *db) Get(ctx context.Context, bucket, key []byte) ([]byte, error) {
+	return get(ctx, db.p, bucket, key)
+}
+
+func (db *db) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
+	return cas(ctx, db.p, bucket, key, oldValue, newValue)
+}
+
+func (db *db) List(ctx context.Context, bucket []byte) ([]nosql.Record, error) {
+	return list(ctx, db.p, bucket)
 }
 
 var readOnlyOpts = pgx.TxOptions{
@@ -156,14 +179,14 @@ var readOnlyOpts = pgx.TxOptions{
 	AccessMode: pgx.ReadOnly,
 }
 
-func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) error {
-	return pgx.BeginTxFunc(ctx, db.p, readOnlyOpts, func(tx pgx.Tx) (err error) {
-		if err = fn(&wrapper[pgx.Tx]{tx}); err != nil && isRace(err) {
-			err = nosql.ErrRace
-		}
+func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) (err error) {
+	if err = pgx.BeginTxFunc(ctx, db.p, readOnlyOpts, func(tx pgx.Tx) error {
+		return fn(&wrapper{tx})
+	}); err != nil && isRace(err) {
+		err = nosql.ErrRace
+	}
 
-		return
-	})
+	return
 }
 
 var readWriteOpts = pgx.TxOptions{
@@ -171,35 +194,119 @@ var readWriteOpts = pgx.TxOptions{
 	AccessMode: pgx.ReadWrite,
 }
 
-func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) error {
-	return pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) (err error) {
-		if err = fn(&wrapper[pgx.Tx]{tx}); err != nil && isRace(err) {
-			err = nosql.ErrRace
-		}
+func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) (err error) {
+	if err = pgx.BeginTxFunc(ctx, db.p, readWriteOpts, func(tx pgx.Tx) error {
+		return fn(&wrapper{tx})
+	}); err != nil && isRace(err) {
+		err = nosql.ErrRace
+	}
+
+	return
+}
+
+type wrapper struct {
+	tx pgx.Tx
+}
+
+func (w *wrapper) Get(ctx context.Context, bucket, key []byte) (value []byte, err error) {
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	err = w.do(ctx, func(tx pgx.Tx) (err error) {
+		value, err = get(ctx, tx, bucket, key)
 
 		return
 	})
+
+	return
 }
 
-type dataSource interface {
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	SendBatch(context.Context, *pgx.Batch) pgx.BatchResults
+func (w *wrapper) Put(ctx context.Context, bucket, key, value []byte) error {
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	return w.do(ctx, func(tx pgx.Tx) error {
+		return put(ctx, tx, bucket, key, value)
+	})
 }
 
-type wrapper[DS dataSource] struct {
-	ds dataSource
+func (w *wrapper) Delete(ctx context.Context, bucket, key []byte) error {
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	return w.do(ctx, func(tx pgx.Tx) error {
+		return del(ctx, tx, bucket, key)
+	})
 }
 
-func (w *wrapper[DS]) Get(ctx context.Context, bucket, key []byte) (value []byte, err error) {
+func (w *wrapper) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	return w.do(ctx, func(tx pgx.Tx) error {
+		return cas(ctx, tx, bucket, key, oldValue, newValue)
+	})
+}
+
+func (w *wrapper) PutMany(ctx context.Context, records ...nosql.Record) error {
+	if len(records) == 0 {
+		return nil // save the round trip
+	}
+
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	return w.do(ctx, func(tx pgx.Tx) error {
+		return putMany(ctx, tx, records...)
+	})
+}
+
+func (w *wrapper) List(ctx context.Context, bucket []byte) (records []nosql.Record, err error) {
+	// we're using a savepoint as if the table is not defined, the whole
+	// of the transaction will be aborted instead of carrying on
+
+	err = w.do(ctx, func(tx pgx.Tx) (err error) {
+		records, err = list(ctx, tx, bucket)
+
+		return
+	})
+
+	return
+}
+
+func (w *wrapper) do(ctx context.Context, fn func(pgx.Tx) error) error {
+	return pgx.BeginFunc(ctx, w.tx, fn)
+}
+
+// --- helpers
+
+// generic constraints
+type (
+	executor interface {
+		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	}
+
+	querier interface {
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+	}
+
+	rowQuerier interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}
+
+	batcher interface {
+		SendBatch(context.Context, *pgx.Batch) pgx.BatchResults
+	}
+)
+
+func get[RQ rowQuerier](ctx context.Context, rq RQ, bucket, key []byte) (value []byte, err error) {
 	sql := fmt.Sprintf( /* sql */ `
 		SELECT nvalue
 		FROM %s
 		WHERE nkey = $1;
 	`, quote(bucket))
 
-	switch err = w.ds.QueryRow(ctx, sql, key).Scan(&value); {
+	switch err = rq.QueryRow(ctx, sql, key).Scan(&value); {
 	case isNoRows(err):
 		err = nosql.ErrKeyNotFound
 	case isUndefinedTable(err):
@@ -209,48 +316,121 @@ func (w *wrapper[DS]) Get(ctx context.Context, bucket, key []byte) (value []byte
 	return
 }
 
-func (w *wrapper[DS]) Put(ctx context.Context, bucket, key, value []byte) (err error) {
-	sql := insertQuery(bucket)
+func put[E executor](ctx context.Context, e E, bucket, key, value []byte) (err error) {
+	sql := fmt.Sprintf( /* sql */ `
+		INSERT INTO %s (nkey, nvalue)
+		VALUES ($1, $2)
+		ON CONFLICT(nkey) DO UPDATE SET nvalue = EXCLUDED.nvalue;
+	`, quote(bucket))
 
-	switch _, err = w.ds.Exec(ctx, sql, key, value); {
-	case err == nil:
-		break
-	case isUndefinedTable(err):
+	if _, err = e.Exec(ctx, sql, key, value); isUndefinedTable(err) {
 		err = nosql.ErrBucketNotFound
 	}
 
 	return
 }
 
-func insertQuery(bucket []byte) string {
-	return fmt.Sprintf( /* sql */ `
-		INSERT INTO %s ( nkey, nvalue )
-		VALUES ( $1, $2 )
-		ON CONFLICT ( nkey ) DO UPDATE SET nvalue = $2;
+func list[QR querier](ctx context.Context, qr QR, bucket []byte) (records []nosql.Record, err error) {
+	sql := fmt.Sprintf( /* sql */ `
+		SELECT nkey AS Key, nvalue AS Value
+		FROM %s
+		ORDER BY nkey;
 	`, quote(bucket))
+
+	var rows pgx.Rows
+	if rows, err = qr.Query(ctx, sql); err == nil {
+		if records, err = pgx.CollectRows(rows, pgx.RowToStructByNameLax[nosql.Record]); err == nil {
+			for i := range records {
+				records[i].Bucket = slices.Clone(bucket)
+			}
+		}
+	} else if isUndefinedTable(err) {
+		err = nosql.ErrBucketNotFound
+	}
+
+	return
 }
 
-func (w *wrapper[DS]) Delete(ctx context.Context, bucket, key []byte) (err error) {
+func del[E executor](ctx context.Context, e E, bucket, key []byte) (err error) {
 	sql := fmt.Sprintf( /* sql */ `
 		DELETE FROM %s
-		WHERE nkey = $1
-		RETURNING TRUE;
+		WHERE nkey = $1;
 	`, quote(bucket))
 
-	var deleted bool
-	switch err = w.ds.QueryRow(ctx, sql, key).Scan(&deleted); {
-	case err == nil:
-		break
-	case isNoRows(err):
-		err = nil
-	case isUndefinedTable(err):
+	if _, err = e.Exec(ctx, sql, key); err != nil && isUndefinedTable(err) {
 		err = nosql.ErrBucketNotFound
 	}
 
 	return
 }
 
-func (w *wrapper[DS]) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) (err error) {
+func putMany[B batcher](ctx context.Context, b B, records ...nosql.Record) error {
+	var (
+		seed = maphash.MakeSeed()
+		bm   = map[uint64]struct{}{} // buckets map, sum(bucket) -> presence
+		km   = map[uint64][]byte{}   // keys map, sum(key) -> key
+		vm   = map[uint64][]byte{}   // values map, sum(key) -> value
+
+		keys [][]byte // reusable keys buffer
+		vals [][]byte // reusable values buffer
+	)
+
+	var batch pgx.Batch
+
+	for i, r := range records {
+		id := maphash.Bytes(seed, r.Bucket)
+		if _, ok := bm[id]; ok {
+			continue // bucket already processed
+		}
+		bm[id] = struct{}{}
+
+		// we can't INSERT ... ON CONFLICT DO UPDATE for the same key more than once so we'll
+		// ensure that the last key is the only one sent per bucket
+
+		id = maphash.Bytes(seed, r.Key)
+		km[id] = r.Key
+		vm[id] = r.Value
+
+		for _, rr := range records[i+1:] {
+			if !bytes.Equal(r.Bucket, rr.Bucket) {
+				continue // different bucket
+			}
+
+			id := maphash.Bytes(seed, rr.Key)
+			km[id] = rr.Key
+			vm[id] = rr.Value
+		}
+
+		for id, key := range km {
+			keys = append(keys, key)
+			vals = append(vals, vm[id])
+		}
+
+		sql := fmt.Sprintf( /* sql */ `
+			INSERT INTO %s (nkey, nvalue)
+			SELECT *
+			FROM unnest($1::BYTEA[], $2::BYTEA[])
+			ON CONFLICT(nkey) DO UPDATE SET nvalue = EXCLUDED.nvalue;
+		`, quote(r.Bucket))
+
+		// we have to pass clones of the keys and the values
+		_ = batch.Queue(sql, slices.Clone(keys), slices.Clone(vals))
+
+		// clear the buffers before the next iteration
+		clear(km)
+		clear(vm)
+		keys = keys[:0]
+		vals = vals[:0]
+	}
+
+	err := b.SendBatch(ctx, &batch).Close()
+	if err != nil && isUndefinedTable(err) {
+		err = nosql.ErrBucketNotFound
+	}
+	return err
+}
+
+func cas[RQ rowQuerier](ctx context.Context, rq RQ, bucket, key, oldValue, newValue []byte) (err error) {
 	table := quote(bucket)
 
 	sql := fmt.Sprintf( /* sql */ `
@@ -274,86 +454,21 @@ func (w *wrapper[DS]) CompareAndSwap(ctx context.Context, bucket, key, oldValue,
 
 	var updated bool
 	var current []byte
-	switch err = w.ds.QueryRow(ctx, sql, key, oldValue, newValue).Scan(&updated, &current); {
+	switch err = rq.QueryRow(ctx, sql, key, oldValue, newValue).Scan(&updated, &current); {
 	case err == nil:
 		if !updated {
 			err = &nosql.ComparisonError{
 				Value: current,
 			}
 		}
-	case isUndefinedTable(err):
-		err = nosql.ErrBucketNotFound
 	case isNoRows(err):
 		err = nosql.ErrKeyNotFound
-	}
-
-	return
-}
-
-func (w *wrapper[DS]) PutMany(ctx context.Context, records ...nosql.Record) (err error) {
-	if len(records) == 0 {
-		return // save the round trip
-	}
-
-	// TODO: this may be optimized
-
-	var b pgx.Batch
-	for _, r := range records {
-		sql := insertQuery(r.Bucket)
-
-		_ = b.Queue(sql, r.Key, r.Value)
-	}
-
-	switch err = w.ds.SendBatch(ctx, &b).Close(); {
-	case err == nil:
-		break
 	case isUndefinedTable(err):
 		err = nosql.ErrBucketNotFound
 	}
 
 	return
 }
-
-func (w *wrapper[DS]) List(ctx context.Context, bucket []byte) (records []nosql.Record, err error) {
-	sql := fmt.Sprintf( /* sql */ `
-		SELECT
-			nkey AS Key,
-			nvalue AS Value
-		FROM %s
-		ORDER BY nkey;
-	`, quote(bucket))
-
-	var rows pgx.Rows
-	switch rows, err = w.ds.Query(ctx, sql); {
-	case err == nil:
-		if records, err = pgx.CollectRows(rows, pgx.RowToStructByNameLax[nosql.Record]); err == nil {
-			for i := range records {
-				records[i].Bucket = slices.Clone(bucket)
-			}
-		}
-	case isUndefinedTable(err):
-		err = nosql.ErrBucketNotFound
-	}
-
-	return
-}
-
-func (db *db) CompareAndSwap(ctx context.Context, bucket, key, oldValue, newValue []byte) error {
-	return db.Mutate(ctx, func(m nosql.Mutator) error {
-		return m.CompareAndSwap(ctx, bucket, key, oldValue, newValue)
-	})
-}
-
-func (db *db) List(ctx context.Context, bucket []byte) (kvs []nosql.Record, err error) {
-	err = db.View(ctx, func(v nosql.Viewer) (err error) {
-		kvs, err = v.List(ctx, bucket)
-
-		return
-	})
-	return
-}
-
-// --- helpers
 
 func quote[T ~string | ~[]byte](id T) string {
 	var sb strings.Builder
