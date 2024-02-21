@@ -106,14 +106,27 @@ func (db *db) tx(ctx context.Context, opts *sql.TxOptions, fn func(tx *sql.Tx) e
 }
 
 func (db *db) CreateBucket(ctx context.Context, bucket []byte) error {
-	query := fmt.Sprintf( /* sql */ `
+	table := quote(bucket)
+
+	const checkQuery = /* sql */ `
+		SELECT TRUE
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = DATABASE() AND table_name = ?;
+	`
+
+	var exists bool
+	if err := db.pool.QueryRowContext(ctx, checkQuery, table).Scan(&exists); !isNoRows(err) {
+		return err // either nil (which means the table is there) or another error
+	}
+
+	createQuery := fmt.Sprintf( /* sql */ `
 		CREATE TABLE IF NOT EXISTS %s (
 			nkey VARBINARY(%d) PRIMARY KEY NOT NULL CHECK ( octet_length(nkey) >= %d ),
 			nvalue BLOB NOT NULL CHECK ( octet_length(nvalue) <= %d )
 		);
-	`, quote(bucket), nosql.MaxKeySize, nosql.MinKeySize, nosql.MaxValueSize)
+	`, table, nosql.MaxKeySize, nosql.MinKeySize, nosql.MaxValueSize)
 
-	_, err := db.pool.ExecContext(ctx, query)
+	_, err := db.pool.ExecContext(ctx, createQuery)
 
 	return err
 }
