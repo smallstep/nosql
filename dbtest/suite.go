@@ -1009,7 +1009,7 @@ func (s *suite) existingRecords(t *testing.T, minBuckets, maxBuckets, minPerBuck
 func (*suite) longBucket(t *testing.T) []byte {
 	t.Helper()
 
-	return token.New(t, nosql.MaxBucketSize+1, nosql.MaxBucketSize+5, true)
+	return token.New(t, nosql.MaxBucketSize+1, nosql.MaxBucketSize+2, true)
 }
 
 // invalidBucket returns a bucket that's invalid.
@@ -1115,7 +1115,7 @@ func (*suite) anyKey(t *testing.T) []byte {
 func (*suite) longKey(t *testing.T) []byte {
 	t.Helper()
 
-	return token.New(t, nosql.MaxKeySize+1, nosql.MaxKeySize*2, false)
+	return token.New(t, nosql.MaxKeySize+1, nosql.MaxKeySize+2, false)
 }
 
 // existingKey adds a key (pointing to a random value) to the provided bucket and returns it
@@ -1152,7 +1152,7 @@ func (*suite) anyValue(t *testing.T) []byte {
 func (*suite) longValue(t *testing.T) []byte {
 	t.Helper()
 
-	return token.New(t, nosql.MaxValueSize+1, nosql.MaxValueSize*2, false)
+	return token.New(t, nosql.MaxValueSize+1, nosql.MaxValueSize+2, false)
 }
 
 // anyValue returns a random value different to the given one
