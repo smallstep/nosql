@@ -32,7 +32,7 @@ jobs:
         ports:
           - 5432/tcp
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -d postgres -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -79,6 +79,6 @@ jobs:
       - name: Test
         run: V=1 make ci-test
         env:
-          TEST_POSTGRES_DSN: postgres://postgres:${{ env.DBPASSWORD }}@localhost:${{ job.services.postgres.ports['5432'] }}/nosql_test?sslmode=disable
-          TEST_MYSQL_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mysql.ports['3306'] }})/nosql_test
-          TEST_MARIADB_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mariadb.ports['3306'] }})/nosql_test
+          TEST_POSTGRES_DSN: postgres://postgres:${{ env.DBPASSWORD }}@localhost:${{ job.services.postgres.ports['5432'] }}/nosql_test?sslmode=disable&connect_timeout=5
+          TEST_MYSQL_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mysql.ports['3306'] }})/nosql_test?timeout=5s
+          TEST_MARIADB_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mariadb.ports['3306'] }})/nosql_test?timeout=5s
