@@ -2,13 +2,16 @@ package token
 
 import (
 	"bytes"
+	"hash/maphash"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNew(t *testing.T) {
+func TestNewCorrectness(t *testing.T) {
+	t.Parallel()
+
 	const (
 		minSize    = 5
 		maxSize    = 42
@@ -34,4 +37,25 @@ func TestNew(t *testing.T) {
 			"token (%q) ends with a space", tok)
 	}
 	assert.Len(t, tokens, iterations)
+}
+
+func TestNewUniqueness(t *testing.T) {
+	t.Parallel()
+
+	var (
+		seed       = maphash.MakeSeed()
+		generated  = map[uint64]struct{}{}
+		iterations int
+	)
+
+	for len(generated) < 100_000 {
+		iterations++
+
+		x := maphash.Bytes(seed, New(t, 32, 32, iterations%2 == 1))
+		if _, ok := generated[x]; !ok {
+			generated[x] = struct{}{}
+		}
+	}
+
+	assert.Len(t, generated, iterations)
 }
