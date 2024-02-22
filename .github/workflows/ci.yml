@@ -62,6 +62,7 @@ jobs:
           --health-retries=3
 
     strategy:
+      max-parallel: 1
       matrix:
         go: [ 'stable', 'oldstable' ]
 
