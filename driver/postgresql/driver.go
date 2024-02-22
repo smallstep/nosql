@@ -476,10 +476,6 @@ func isUndefinedTable(err error) bool {
 	return isPostgresErrorCode(err, pgerrcode.UndefinedTable)
 }
 
-func isRace(err error) bool {
-	return isPostgresErrorCode(err, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure)
-}
-
 func isPostgresErrorCode(err error, codes ...string) (is bool) {
 	var pe *pgconn.PgError
 	if is = errors.As(err, &pe); is {

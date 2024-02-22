@@ -429,8 +429,3 @@ func isTableNotFound(err error) bool {
 	return errors.As(err, &me) &&
 		(me.Number == 1051 || me.Number == 1146)
 }
-
-func isRace(err error) bool {
-	var me *mysql.MySQLError
-	return errors.As(err, &me) && me.Number == 1213
-}

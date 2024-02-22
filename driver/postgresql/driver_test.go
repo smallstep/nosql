@@ -30,7 +30,7 @@ func Test(t *testing.T) {
 	db, err := Open(ctx, dsn)
 	require.NoError(t, err)
 
-	dbtest.Test(t, db, true)
+	dbtest.Test(t, db)
 }
 
 func dropTestDatabase(ctx context.Context, t *testing.T, dsn string) {

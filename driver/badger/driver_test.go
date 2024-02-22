@@ -38,7 +38,7 @@ func Test(t *testing.T) {
 			db, err := open(context.Background(), t.TempDir())
 			require.NoError(t, err)
 
-			dbtest.Test(t, db, false)
+			dbtest.Test(t, db)
 		})
 	}
 }
