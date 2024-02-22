@@ -16,6 +16,7 @@ jobs:
       only-latest-golang: false
       run-codeql: true
       run-test: false
+      run-build: false
     secrets: inherit
 
   test:
