@@ -39,7 +39,7 @@ func Test(t *testing.T) {
 			db, err := Open(ctx, dsn)
 			require.NoError(t, err)
 
-			dbtest.Test(t, db)
+			dbtest.Test(t, db, true)
 		})
 	}
 }

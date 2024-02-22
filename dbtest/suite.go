@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	mand "math/rand"
 	"slices"
 	"strconv"
@@ -701,17 +702,28 @@ func (s *suite) testPutManyFunc(t *testing.T, putMany putManyFunc) {
 		}
 	}
 
+	// and, finally, we'll add a secondary update for one of each records
+	di := mand.Intn(len(exp)) //nolint:gosec // not a sensitive op
+	dup := exp[di].Clone()
+	dup.Value = s.differentValue(t, dup.Value)
+	exp = append(exp, dup)
+
 	ctx := newContext(t)
 
 	// then we'll put them in the database, ensuring we get no error
 	require.NoError(t, putMany(ctx, exp...))
 
 	// and retrieve them to compare what we read is what we expect
-	for _, r := range exp {
+	for i, r := range exp {
 		v, err := s.db.Get(ctx, r.Bucket, r.Key)
-		require.NoError(t, err)
-
-		require.Equal(t, r.Value, v)
+		if assert.NoError(t, err) {
+			if i == di {
+				// for this record, we expect the value to equal the one we set last
+				assert.Equal(t, exp[len(exp)-1].Value, v)
+			} else {
+				assert.Equal(t, r.Value, v)
+			}
+		}
 	}
 }
 
@@ -851,6 +863,176 @@ func (s *suite) testMutatorList(t *testing.T) {
 		})
 		return
 	})
+}
+
+func (s *suite) testCompoundViewer(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx = newContext(t)
+
+		bucket        = s.existingBucket(t)
+		key, expValue = s.existingKey(t, bucket)
+	)
+
+	var gotValue []byte
+	err := s.db.View(ctx, func(v nosql.Viewer) (err error) {
+		var (
+			b1 = s.newBucket(t) // bucke that does not exist
+			k1 = s.anyKey(t)
+		)
+
+		if _, err = v.Get(ctx, b1, k1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		if _, err = v.List(ctx, b1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		gotValue, err = v.Get(ctx, bucket, key)
+
+		return
+	})
+	require.NoError(t, err)
+	require.Equal(t, expValue, gotValue)
+}
+
+func (s *suite) testCompoundMutator(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx = newContext(t)
+
+		bucket   = s.existingBucket(t)
+		key      = s.newKey(t, bucket)
+		value    = s.anyValue(t)
+		expValue = s.differentValue(t, value)
+	)
+
+	err := s.db.Mutate(ctx, func(m nosql.Mutator) error {
+		var (
+			b1 = s.newBucket(t) // bucke that does not exist
+			k1 = s.anyKey(t)
+			v1 = s.anyValue(t)
+		)
+		if err := m.Put(ctx, b1, k1, v1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		if _, err := m.Get(ctx, b1, k1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		if err := m.CompareAndSwap(ctx, b1, k1, v1, s.differentValue(t, v1)); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		if _, err := m.List(ctx, b1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		if err := m.Delete(ctx, b1, k1); !errors.Is(err, nosql.ErrBucketNotFound) {
+			panic(err)
+		}
+
+		// the above errors shouldn't stop the transaction from going through
+		return m.PutMany(ctx,
+			nosql.Record{Bucket: bucket, Key: key, Value: value},
+			nosql.Record{Bucket: bucket, Key: key, Value: expValue},
+		)
+	})
+	require.NoError(t, err)
+
+	got, err := s.db.Get(ctx, bucket, key)
+	require.NoError(t, err)
+	require.Equal(t, expValue, got)
+}
+
+func (s *suite) testRace(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx         = newContext(t)
+		accounts    = s.existingBucket(t)
+		account1, _ = s.existingKey(t, accounts)
+		account2, _ = s.existingKey(t, accounts)
+
+		p1 = make(chan struct{})
+		p2 = make(chan struct{})
+
+		err1, err2 error
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		err1 = s.db.Mutate(ctx, func(m nosql.Mutator) error {
+			account1Balance, err := m.Get(ctx, accounts, account1)
+			if err != nil {
+				return err
+			}
+			close(p1)
+			<-p2
+
+			if err := m.Put(ctx, accounts, account1, s.differentValue(t, account1Balance)); err != nil {
+				return err
+			}
+
+			account2Balance, err := m.Get(ctx, accounts, account2)
+			if err != nil {
+				return err
+			}
+			if err := m.Put(ctx, accounts, account2, s.differentValue(t, account2Balance)); err != nil {
+				return err
+			}
+
+			return err
+		})
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		err2 = s.db.Mutate(ctx, func(m nosql.Mutator) error {
+			account2Balance, err := m.Get(ctx, accounts, account2)
+			if err != nil {
+				return err
+			}
+			close(p2)
+			<-p1
+
+			if err := m.Put(ctx, accounts, account2, s.differentValue(t, account2Balance)); err != nil {
+				return err
+			}
+
+			account1Balance, err := m.Get(ctx, accounts, account1)
+			if err != nil {
+				return err
+			}
+			if err := m.Put(ctx, accounts, account1, s.differentValue(t, account1Balance)); err != nil {
+				return err
+			}
+
+			return err
+		})
+	}()
+
+	wg.Wait()
+
+	switch {
+	case errors.Is(err1, nosql.ErrRace) && errors.Is(err2, nosql.ErrRace):
+		break // both of them returned the error, which is acceptable
+	case errors.Is(err1, nosql.ErrRace) && err2 == nil:
+		break // the first mutation returned the error while the other succeeded, which is OK
+	case errors.Is(err2, nosql.ErrRace) && err1 == nil:
+		break // the second mutation returned the error while the other succeeded, which is OK
+	default:
+		t.Errorf("unacceptable combination of results (%v, %v)", err1, err2)
+	}
 }
 
 func (s *suite) testListFunc(t *testing.T, list listFunc) {
@@ -1002,7 +1184,7 @@ func (s *suite) newKey(t *testing.T, bucket []byte) (key []byte) {
 	}
 }
 
-// anyValue returns a random key
+// anyKey returns a random key
 func (*suite) anyKey(t *testing.T) []byte {
 	t.Helper()
 

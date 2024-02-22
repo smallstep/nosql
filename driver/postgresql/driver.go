@@ -485,10 +485,18 @@ func isUndefinedTable(err error) bool {
 }
 
 func isRace(err error) bool {
-	return isPostgresErrorCode(err, pgerrcode.SerializationFailure)
+	return isPostgresErrorCode(err, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure)
 }
 
-func isPostgresErrorCode(err error, code string) bool {
+func isPostgresErrorCode(err error, codes ...string) (is bool) {
 	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == code
+	if is = errors.As(err, &pe); is {
+		for _, code := range codes {
+			if is = pe.Code == code; is {
+				break
+			}
+		}
+	}
+
+	return
 }

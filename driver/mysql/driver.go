@@ -27,13 +27,13 @@ func Open(ctx context.Context, dsn string) (nosql.DB, error) {
 		return nil, err
 	}
 
-	conn, err := mysql.NewConnector(cfg)
+	mdb, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
 
 	return nosql.Constrain(&db{
-		pool: sql.OpenDB(conn),
+		pool: mdb,
 	}), nil
 }
 
@@ -200,7 +200,6 @@ func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) (err err
 	}); err != nil && isRace(err) {
 		err = nosql.ErrRace
 	}
-
 	return
 }
 
@@ -440,5 +439,5 @@ func isTableNotFound(err error) bool {
 
 func isRace(err error) bool {
 	var me *mysql.MySQLError
-	return errors.As(err, &me) && me.Number == 40001
+	return errors.As(err, &me) && me.Number == 1213
 }

@@ -14,7 +14,10 @@ import (
 // Test tests the provided [nosql.DB].
 //
 // The provided [nosql.DB] will be closed before Run returns.
-func Test(t *testing.T, db nosql.DB) {
+//
+// The given races flag denotes whether the given [nosql.DB] implementation should be tested
+// for race-y conditions.
+func Test(t *testing.T, db nosql.DB, races bool) {
 	t.Helper()
 
 	t.Cleanup(func() {
@@ -26,7 +29,7 @@ func Test(t *testing.T, db nosql.DB) {
 		generated: map[string]map[string][]byte{},
 	}
 
-	for name, test := range map[string]func(*testing.T){
+	tests := map[string]func(*testing.T){
 		"CreateBucketValidations": s.testCreateBucketValidations,
 		"CreateBucket":            s.testCreateBucket,
 		"DeleteBucketValidations": s.testDeleteBucketValidations,
@@ -67,7 +70,15 @@ func Test(t *testing.T, db nosql.DB) {
 		"ViewerList":             s.testViewerList,
 		"MutatorListValidations": s.testMutatorListValidations,
 		"MutatorList":            s.testMutatorList,
-	} {
+
+		"CompoundViewer":  s.testCompoundViewer,
+		"CompoundMutator": s.testCompoundMutator,
+	}
+	if races {
+		tests["Race"] = s.testRace
+	}
+
+	for name, test := range tests {
 		t.Run(name, test)
 	}
 }
@@ -79,7 +90,7 @@ func newContext(t *testing.T) (ctx context.Context) {
 	if dl, ok := t.Deadline(); ok {
 		ctx, cancel = context.WithDeadline(context.Background(), dl)
 	} else {
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 	}
 	t.Cleanup(cancel)
 

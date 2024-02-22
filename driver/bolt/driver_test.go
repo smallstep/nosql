@@ -19,7 +19,7 @@ func Test(t *testing.T) {
 	db, err := Open(newContext(t), filepath.Join(t.TempDir(), "bolt.db"))
 	require.NoError(t, err)
 
-	dbtest.Test(t, db)
+	dbtest.Test(t, db, false)
 }
 
 func TestContextWithOptions(t *testing.T) {
