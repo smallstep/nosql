@@ -75,9 +75,21 @@ jobs:
           go-version: ${{ matrix.go }}
           check-latest: true
 
-      - name: Test
-        run: V=1 make ci-test
+      - name: Install gotestsum
+        run: go get gotest.tools/gotestsum
+
+      - name: Run Test Suite
+        run: |
+          gotestsum -- -timeout 5m -race -coverpkg=./... -coverprofile=coverprofile -covermode=atomic ./...
         env:
+          GOTESTSUM_JSONFILE: gotestsum.json
+        
           TEST_POSTGRES_DSN: postgres://postgres:${{ env.DBPASSWORD }}@localhost:${{ job.services.postgres.ports['5432'] }}/nosql_test_${{ matrix.go }}?sslmode=disable&connect_timeout=5
           TEST_MYSQL_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mysql.ports['3306'] }})/nosql_test_${{ matrix.go }}?timeout=5s
           TEST_MARIADB_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mariadb.ports['3306'] }})/nosql_test_${{ matrix.go }}?timeout=5s
+
+      - name: Annotate Test Suite Results
+        if: ${{ (success() || failure()) && hashFiles('gotestsum.json') != '' }}
+        uses: guyarb/golang-test-annotations@v0.7.0
+        with:
+          test-results: gotestsum.json
