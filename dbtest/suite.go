@@ -1025,6 +1025,8 @@ func (*suite) invalidBucket(t *testing.T) (bucket []byte) {
 
 		if bytes.IndexByte(bucket, 0) > -1 || !utf8.Valid(bucket) {
 			return
+		} else if r, _ := utf8.DecodeLastRune(bucket); unicode.IsSpace(r) {
+			return
 		}
 	}
 }
