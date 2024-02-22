@@ -17,7 +17,7 @@ import (
 //
 // The given races flag denotes whether the given [nosql.DB] implementation should be tested
 // for race-y conditions.
-func Test(t *testing.T, db nosql.DB, races bool) {
+func Test(t *testing.T, db nosql.DB) {
 	t.Helper()
 
 	t.Cleanup(func() {
@@ -73,9 +73,6 @@ func Test(t *testing.T, db nosql.DB, races bool) {
 
 		"CompoundViewer":  s.testCompoundViewer,
 		"CompoundMutator": s.testCompoundMutator,
-	}
-	if races {
-		tests["Race"] = s.testRace
 	}
 
 	for name, test := range tests {

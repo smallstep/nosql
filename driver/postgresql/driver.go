@@ -179,14 +179,10 @@ var readOnlyOpts = pgx.TxOptions{
 	AccessMode: pgx.ReadOnly,
 }
 
-func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) (err error) {
-	if err = pgx.BeginTxFunc(ctx, db.pool, readOnlyOpts, func(tx pgx.Tx) error {
+func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) error {
+	return pgx.BeginTxFunc(ctx, db.pool, readOnlyOpts, func(tx pgx.Tx) error {
 		return fn(&wrapper{tx})
-	}); err != nil && isRace(err) {
-		err = nosql.ErrRace
-	}
-
-	return
+	})
 }
 
 var readWriteOpts = pgx.TxOptions{
@@ -194,14 +190,10 @@ var readWriteOpts = pgx.TxOptions{
 	AccessMode: pgx.ReadWrite,
 }
 
-func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) (err error) {
-	if err = pgx.BeginTxFunc(ctx, db.pool, readWriteOpts, func(tx pgx.Tx) error {
+func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) error {
+	return pgx.BeginTxFunc(ctx, db.pool, readWriteOpts, func(tx pgx.Tx) error {
 		return fn(&wrapper{tx})
-	}); err != nil && isRace(err) {
-		err = nosql.ErrRace
-	}
-
-	return
+	})
 }
 
 type wrapper struct {

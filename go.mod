@@ -10,7 +10,7 @@ require (
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.5.4
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.4
 	go.etcd.io/bbolt v1.3.9
 )
 
@@ -38,7 +38,7 @@ require (
 	go.opencensus.io v0.22.5 // indirect
 	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/sync v0.5.0 // indirect
+	golang.org/x/sync v0.6.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect

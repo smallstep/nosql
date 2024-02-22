@@ -179,14 +179,10 @@ var viewOpts = sql.TxOptions{
 	ReadOnly:  true,
 }
 
-func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) (err error) {
-	if err = db.tx(ctx, &viewOpts, func(tx *sql.Tx) error {
+func (db *db) View(ctx context.Context, fn func(nosql.Viewer) error) error {
+	return db.tx(ctx, &viewOpts, func(tx *sql.Tx) error {
 		return fn(&wrapper{db, tx})
-	}); err != nil && isRace(err) {
-		err = nosql.ErrRace
-	}
-
-	return
+	})
 }
 
 var mutationOpts = sql.TxOptions{
@@ -194,13 +190,10 @@ var mutationOpts = sql.TxOptions{
 	ReadOnly:  false,
 }
 
-func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) (err error) {
-	if err = db.tx(ctx, &mutationOpts, func(tx *sql.Tx) error {
+func (db *db) Mutate(ctx context.Context, fn func(nosql.Mutator) error) error {
+	return db.tx(ctx, &mutationOpts, func(tx *sql.Tx) error {
 		return fn(&wrapper{db, tx})
-	}); err != nil && isRace(err) {
-		err = nosql.ErrRace
-	}
-	return
+	})
 }
 
 type wrapper struct {
