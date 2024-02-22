@@ -66,9 +66,6 @@ jobs:
         go: [ 'stable', 'oldstable' ]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -76,7 +73,10 @@ jobs:
           check-latest: true
 
       - name: Install gotestsum
-        run: go get gotest.tools/gotestsum
+        run: go install gotest.tools/gotestsum@v1.11.0
+
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Run Test Suite
         run: |
