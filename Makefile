@@ -35,7 +35,7 @@ test:
 	$Q $(GOFLAGS) go test -short -coverprofile=coverage.out ./...
 
 ci-test:
-	$Q $(GOFLAGS) CI=1 go test -short -coverprofile=coverage.out ./...
+	$Q $(GOFLAGS) go test -coverprofile=coverage.out ./...
 
 .PHONY: test ci-test
 
@@ -48,7 +48,7 @@ fmt:
 
 lint: SHELL:=/bin/bash
 lint:
-	$Q LOG_LEVEL=error golangci-lint run --config <(curl -s https://raw.githubusercontent.com/smallstep/workflows/master/.golangci.yml) --timeout=30m
+	$Q LOG_LEVEL=error golangci-lint run --config <(curl -s https://raw.githubusercontent.com/smallstep/workflows/main/.golangci.yml) --timeout=30m
 	$Q govulncheck ./...
 
 .PHONY: fmt lint
