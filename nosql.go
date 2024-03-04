@@ -223,14 +223,14 @@ type Mutator interface {
 	// tokens.
 	Delete(ctx context.Context, bucket, key []byte) error
 
-	// Put stores the given value in the given bucket for the given key, overwritting any existing
+	// Put stores the given value in the given bucket for the given key, overwriting any existing
 	// value may already be present. It returns an error containing [ErrBucketNotFound] in its chain
 	// when the given bucket does not exist.
 	//
 	// See [DB] for the validations Put performs on the provided bucket, key and value tokens.
 	Put(ctx context.Context, bucket, key, value []byte) error
 
-	// PutMany stores the given records, overwritting the values of any existing ones. It returns an
+	// PutMany stores the given records, overwriting the values of any existing ones. It returns an
 	// error containing [ErrBucketNotFound] in its chain, when the bucket of any given
 	// [Record] does not exist.
 	//
@@ -260,13 +260,13 @@ func (r *Record) GoString() string {
 	return fmt.Sprintf("nosql.Record{%q, %q, %q}", r.Bucket, r.Key, r.Value)
 }
 
-// CompactedByFactor is the interface instances of [DB] also implement in case they support they may
-// be compacted by a factor.
+// CompactedByFactor is the interface instances of [DB] also implement in case they support being
+// compacted by a factor.
 type CompactedByFactor interface {
 	CompactByFactor(context.Context, float64) error
 }
 
-// Copy returns a copy of the [Record].
+// Clone returns a copy of the [Record].
 func (r *Record) Clone() Record {
 	return Record{
 		Bucket: slices.Clone(r.Bucket),
