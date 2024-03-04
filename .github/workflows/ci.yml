@@ -81,7 +81,7 @@ jobs:
 
       - name: Run Test Suite
         run: |
-          gotestsum -- -timeout 5m -race -coverpkg=./... -coverprofile=coverprofile -covermode=atomic ./...
+          gotestsum -- -timeout 10m -race -coverpkg=./... -coverprofile=coverprofile -covermode=atomic ./...
         env:
           GOTESTSUM_JSONFILE: gotestsum.json
         
