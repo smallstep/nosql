@@ -13,7 +13,7 @@ import (
 
 // New returns a random token with length between minSize and maxSize.
 //
-// If bucket is set, then the returned value will be utf-8 valid and not contain the zero byte.
+// If bucket is set, then the returned value will be valid to be used as a bucket.
 func New(t *testing.T, minSize, maxSize int, bucket bool) (tok []byte) {
 	if minSize == maxSize {
 		tok = make([]byte, maxSize)
