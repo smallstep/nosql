@@ -11,14 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// New returns a random token with length between minSize and maxSize.
+// New returns a random token with length in the [minSize, maxSize] interval.
 //
 // If bucket is set, then the returned value will be valid to be used as a bucket.
 func New(t *testing.T, minSize, maxSize int, bucket bool) (tok []byte) {
 	if minSize == maxSize {
 		tok = make([]byte, maxSize)
 	} else {
-		tok = make([]byte, minSize+mand.Intn(maxSize-minSize)) //nolint:gosec // not a sensitive op
+		tok = make([]byte, minSize+mand.Intn(1+maxSize-minSize)) //nolint:gosec // not a sensitive op
 	}
 
 	src := rand.Reader
