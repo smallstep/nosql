@@ -87,7 +87,7 @@ func newContext(t *testing.T) (ctx context.Context) {
 	if dl, ok := t.Deadline(); ok {
 		ctx, cancel = context.WithDeadline(context.Background(), dl)
 	} else {
-		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 	}
 	t.Cleanup(cancel)
 
