@@ -13,3 +13,6 @@
 
 # Vendor directory
 vendor/*
+
+# Ignore direnv files
+.envrc

@@ -16,43 +16,81 @@ jobs:
       only-latest-golang: false
       run-codeql: true
       run-test: false
+      run-build: false
     secrets: inherit
 
   test:
     runs-on: ubuntu-latest
+
+    env:
+      DBPASSWORD: ${{ github.sha }}
+
     services:
       postgres:
-        image: postgres
+        image: postgres:11-alpine
         env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
+          POSTGRES_PASSWORD: ${{ env.DBPASSWORD }}
         ports:
-          - 5432:5432
+          - 5432/tcp
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -d postgres -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
       mysql:
         image: mysql:5.7
         env:
-          MYSQL_USER: user
-          MYSQL_PASSWORD: password
-          MYSQL_DATABASE: test
-          MYSQL_ROOT_PASSWORD: password
+          MYSQL_ROOT_PASSWORD: ${{ env.DBPASSWORD }}
         ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      mariadb:
+        image: mariadb:10.2
+        env:
+          MARIADB_ROOT_PASSWORD: ${{ env.DBPASSWORD }}
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     strategy:
       matrix:
         go: [ 'stable', 'oldstable' ]
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
-      - name: Test
-        run: V=1 make ci-test
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.11.0
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Test Suite
+        run: |
+          gotestsum -- -timeout 10m -race -coverpkg=./... -coverprofile=coverprofile -covermode=atomic ./...
+        env:
+          GOTESTSUM_JSONFILE: gotestsum.json
+        
+          TEST_POSTGRES_DSN: postgres://postgres:${{ env.DBPASSWORD }}@localhost:${{ job.services.postgres.ports['5432'] }}/nosql_test_${{ matrix.go }}?sslmode=disable&connect_timeout=5
+          TEST_MYSQL_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mysql.ports['3306'] }})/nosql_test_${{ matrix.go }}?timeout=5s
+          TEST_MARIADB_DSN: root:${{ env.DBPASSWORD }}@tcp(localhost:${{ job.services.mariadb.ports['3306'] }})/nosql_test_${{ matrix.go }}?timeout=5s
+
+      - name: Annotate Test Suite Results
+        if: ${{ (success() || failure()) && hashFiles('gotestsum.json') != '' }}
+        uses: guyarb/golang-test-annotations@v0.7.0
+        with:
+          test-results: gotestsum.json
