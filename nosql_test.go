@@ -1,7 +1,9 @@
 package nosql
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -356,4 +358,12 @@ func TestBolt(t *testing.T) {
 	defer db.Close()
 
 	run(t, db)
+}
+
+func TestIsErrNotFound(t *testing.T) {
+	assert.True(t, IsErrNotFound(database.ErrNotFound))
+	assert.True(t, IsErrNotFound(sql.ErrNoRows))
+	assert.True(t, IsErrNotFound(fmt.Errorf("something failed: %w", database.ErrNotFound)))
+	assert.True(t, IsErrNotFound(fmt.Errorf("something failed: %w", sql.ErrNoRows)))
+	assert.False(t, IsErrNotFound(errors.New("not found")))
 }
