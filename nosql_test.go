@@ -213,8 +213,8 @@ func run(t *testing.T, db database.DB) {
 	// Update Again //
 
 	// create txns for update test
-	max := testUser{"max", "furman", 6}
-	maxb, err := json.Marshal(max)
+	maxa := testUser{"maxa", "furman", 6}
+	maxb, err := json.Marshal(maxa)
 	assert.FatalError(t, err)
 	maxey := testUser{"mike", "maxey", 3}
 	maxeyb, err := json.Marshal(maxey)
