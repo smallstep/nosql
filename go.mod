@@ -1,6 +1,6 @@
 module github.com/smallstep/nosql
 
-go 1.18
+go 1.21
 
 require (
 	github.com/dgraph-io/badger v1.6.2
