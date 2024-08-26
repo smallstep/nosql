@@ -1,6 +1,7 @@
 module github.com/smallstep/nosql
 
 go 1.21
+toolchain go1.22.5
 
 require (
 	github.com/dgraph-io/badger v1.6.2
@@ -9,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/pkg/errors v0.9.1
 	github.com/smallstep/assert v0.0.0-20180720014142-de77670473b5
-	go.etcd.io/bbolt v1.3.10
+	go.etcd.io/bbolt v1.3.11
 )
 
 require (
