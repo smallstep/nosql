@@ -117,7 +117,7 @@ func (db *DB) Del(bucket, key []byte) error {
 
 // List returns the full list of entries in a column.
 func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
-	rows, err := db.db.Query(fmt.Sprintf("SELECT * FROM `%s`", bucket))
+	rows, err := db.db.Query(fmt.Sprintf("SELECT nkey, nvalue FROM `%s`", bucket))
 	if err != nil {
 		estr := err.Error()
 		if strings.HasPrefix(estr, "Error 1146") {
