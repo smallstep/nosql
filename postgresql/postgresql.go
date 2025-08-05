@@ -104,7 +104,7 @@ func (db *DB) Close() error {
 }
 
 func getAllQry(bucket []byte) string {
-	return fmt.Sprintf("SELECT * FROM %s", quoteIdentifier(string(bucket)))
+	return fmt.Sprintf("SELECT nkey, nvalue FROM %s", quoteIdentifier(string(bucket)))
 }
 
 func getQry(bucket []byte) string {
