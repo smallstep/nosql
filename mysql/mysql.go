@@ -120,7 +120,7 @@ func (db *DB) List(bucket []byte) ([]*database.Entry, error) {
 	if err != nil {
 		estr := err.Error()
 		if strings.HasPrefix(estr, "Error 1146") {
-			return nil, errors.Wrapf(database.ErrNotFound, estr)
+			return nil, errors.Wrapf(database.ErrNotFound, "%s", estr)
 		}
 		return nil, errors.Wrapf(err, "error querying table %s", bucket)
 	}
@@ -217,7 +217,7 @@ func (db *DB) Update(tx *database.Tx) error {
 			if err != nil {
 				estr := err.Error()
 				if strings.HasPrefix(err.Error(), "Error 1051") {
-					return errors.Wrapf(database.ErrNotFound, estr)
+					return errors.Wrapf(database.ErrNotFound, "%s", estr)
 				}
 				return errors.Wrapf(err, "failed to delete table %s", q.Bucket)
 			}
@@ -273,7 +273,7 @@ func (db *DB) DeleteTable(bucket []byte) error {
 	if err != nil {
 		estr := err.Error()
 		if strings.HasPrefix(estr, "Error 1051") {
-			return errors.Wrapf(database.ErrNotFound, estr)
+			return errors.Wrapf(database.ErrNotFound, "%s", estr)
 		}
 		return errors.Wrapf(err, "failed to delete table %s", bucket)
 	}
