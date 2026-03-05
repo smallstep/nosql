@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request_target'
     steps:
-    - uses: actions/labeler@v6.0.1
+    - uses: actions/labeler@634933edcd8ababfe52f92936142cc22ac488b1b # v6.0.1
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
 
@@ -23,7 +23,7 @@ jobs:
     name: Add to Triage Project
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/add-to-project@v1.0.2
+      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
         with:
           project-url: https://github.com/orgs/smallstep/projects/94
           github-token: ${{ secrets.TRIAGE_PAT }}
