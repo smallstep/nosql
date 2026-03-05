@@ -9,8 +9,15 @@ on:
   pull_request:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   ci:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     uses: smallstep/workflows/.github/workflows/goCI.yml@main
     with:
       only-latest-golang: false
@@ -22,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres
+        image: postgres:17
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
