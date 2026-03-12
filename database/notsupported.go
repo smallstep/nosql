@@ -1,3 +1,4 @@
+//nolint:revive // ignore unused parameters because these are stubs
 package database
 
 // NotSupportedDB is a db implementation used on database drivers when the
