@@ -5,6 +5,7 @@ package postgresql
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -76,6 +77,8 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 		config.Database = opts.Database
 	}
 
+	reloadClientCertificates(config, dataSourceName)
+
 	// Attempt to open the database.
 	db.db = pgxstdlib.OpenDB(*config)
 	err = db.db.Ping()
@@ -95,6 +98,52 @@ func (db *DB) Open(dataSourceName string, opt ...database.Option) error {
 	}
 
 	return nil
+}
+
+// reloadClientCertificates makes each new TLS connection read the client
+// certificate from disk instead of reusing the one loaded when the DSN was
+// parsed.
+//
+// ParseConfig reads sslcert and sslkey once and stores the result in
+// TLSConfig.Certificates, and that config backs every connection the pool
+// opens from then on. Where the certificate is rotated underneath a running
+// process, as with a cert-manager CSI volume, connections established after
+// the original expires are still offered the expired one and the server
+// rejects them, even though the files hold a valid certificate.
+//
+// The reload goes back through ParseConfig rather than re-reading the files
+// directly, so the DSN keeps being interpreted exactly as libpq does: URL and
+// keyword forms, the PGSSLCERT and PGSSLKEY environment variables, and
+// whatever else pgx honours stay in one place.
+func reloadClientCertificates(config *pgx.ConnConfig, dataSourceName string) {
+	load := func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		current, err := pgx.ParseConfig(dataSourceName)
+		if err != nil {
+			return nil, errors.Wrap(err, "error reloading PostgreSQL client certificate")
+		}
+		if current.TLSConfig == nil || len(current.TLSConfig.Certificates) == 0 {
+			// An empty certificate tells crypto/tls that none is available,
+			// which is what the handshake did before when none was configured.
+			return &tls.Certificate{}, nil
+		}
+		return &current.TLSConfig.Certificates[0], nil
+	}
+
+	// sslmode=prefer and friends leave the non-TLS attempt in Fallbacks, each
+	// with its own TLSConfig, so every one of them needs the same treatment.
+	tlsConfigs := []*tls.Config{config.TLSConfig}
+	for _, fallback := range config.Fallbacks {
+		tlsConfigs = append(tlsConfigs, fallback.TLSConfig)
+	}
+	for _, tlsConfig := range tlsConfigs {
+		if tlsConfig == nil || len(tlsConfig.Certificates) == 0 {
+			continue
+		}
+		tlsConfig.GetClientCertificate = load
+		// GetClientCertificate takes precedence, but clearing this keeps the
+		// stale copy from being reachable at all.
+		tlsConfig.Certificates = nil
+	}
 }
 
 // Close shutsdown the database driver.
